@@ -1,0 +1,80 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+		"name": "NexaSocial Enterprise API Test Suite",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Register User",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"testuser@example.com\",\n  \"password\": \"Password123!\",\n  \"firstName\": \"Enterprise\",\n  \"lastName\": \"User\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/register",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "register"]
+						}
+					}
+				},
+				{
+					"name": "Login User",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"testuser@example.com\",\n  \"password\": \"Password123!\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Workspaces",
+			"item": [
+				{
+					"name": "Get Workspaces",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+						"url": {
+							"raw": "{{baseUrl}}/workspaces",
+							"host": ["{{baseUrl}}"],
+							"path": ["workspaces"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Live Streams",
+			"item": [
+				{
+					"name": "Get Streams",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+						"url": {
+							"raw": "{{baseUrl}}/workspaces/{{workspaceId}}/streams",
+							"host": ["{{baseUrl}}"],
+							"path": ["workspaces", "{{workspaceId}}", "streams"]
+						}
+					}
+				}
+			]
+		}
+	]
+}

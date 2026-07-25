@@ -1,0 +1,12 @@
+packages:
+  - apps/*
+  - packages/*
+allowBuilds:
+  '@scarf/scarf': true
+  bcrypt: true
+  cpu-features: true
+  msgpackr-extract: true
+  protobufjs: true
+  sharp: true
+  ssh2: true
+  unrs-resolver: true
