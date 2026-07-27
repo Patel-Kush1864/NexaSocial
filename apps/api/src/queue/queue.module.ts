@@ -24,6 +24,8 @@ import { MonitoringModule } from '../monitoring/monitoring.module';
           port:
             configService.get<number>('redis.port') ||
             parseInt(process.env.REDIS_PORT || '6379', 10),
+          maxRetriesPerRequest: null,
+          enableReadyCheck: false,
         },
       }),
       inject: [ConfigService],

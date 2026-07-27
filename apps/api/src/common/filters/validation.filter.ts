@@ -39,11 +39,22 @@ export class ValidationFilter implements ExceptionFilter {
       messageString = JSON.stringify(rawMessage);
     }
 
+    const detailMessages = hasDetails
+      ? (details as Array<{ field?: string; message?: string }>)
+          .map((d) => d.message || `${d.field} is invalid`)
+          .join(', ')
+      : messageString;
+
+    console.log(
+      `[ValidationFilter Catch] Path: ${request.url} | Status: ${status} | Message: "${detailMessages}" | Details:`,
+      JSON.stringify(details),
+    );
+
     return response.status(status).json({
       success: false,
       statusCode: status,
       error: hasDetails ? 'Validation Error' : 'Bad Request',
-      message: hasDetails ? 'Validation failed' : messageString,
+      message: detailMessages || 'Validation failed',
       ...(hasDetails ? { details } : {}),
       timestamp: new Date().toISOString(),
       path: request.url,

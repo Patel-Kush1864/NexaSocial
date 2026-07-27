@@ -100,6 +100,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
       'exception',
     );
 
+    console.error(
+      `[HttpExceptionFilter Catch] Method: ${request.method} | Path: ${request.url} | Status: ${status} | Error: ${error} | Message: "${message}"`,
+      exception instanceof Error ? exception.stack : exception,
+    );
+
     // Return standardized response
     response.status(status).json({
       success: false,

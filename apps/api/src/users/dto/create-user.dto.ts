@@ -29,4 +29,15 @@ export class CreateUserDto {
   @IsString()
   @Trim()
   lastName?: string;
+
+  @IsOptional()
+  @IsString()
+  phoneNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  verificationToken?: string;
+
+  @IsOptional()
+  isEmailVerified?: boolean;
 }

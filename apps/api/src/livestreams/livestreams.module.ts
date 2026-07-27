@@ -49,7 +49,12 @@ import { LinkedinAdapter } from './adapters/linkedin.adapter';
   exports: [
     LiveStreamsService,
     LiveStreamsRepository,
+    LiveStreamGateway,
     LiveStreamSchedulerService,
+    YoutubeAdapter,
+    FacebookAdapter,
+    TwitchAdapter,
+    LinkedinAdapter,
     TypeOrmModule,
   ],
 })

@@ -21,4 +21,4 @@ import { RefreshStrategy } from './strategies/refresh.strategy';
   providers: [AuthService, LocalStrategy, JwtStrategy, RefreshStrategy],
   exports: [AuthService],
 })
-export class AuthModule {}
+export class AuthModule { }

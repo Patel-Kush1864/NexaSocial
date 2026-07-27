@@ -1,19 +1,20 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../../app.module';
-import { DataSource } from 'typeorm';
+import dataSource from '../data-source';
 import { runSeed } from './seed';
 
 async function bootstrap() {
-  console.log('Initializing application context for seeding...');
-  const app = await NestFactory.createApplicationContext(AppModule);
-  const dataSource = app.get(DataSource);
+  console.log('Initializing database connection for seeding...');
   try {
+    if (!dataSource.isInitialized) {
+      await dataSource.initialize();
+    }
     await runSeed(dataSource);
     console.log('Seeding completed successfully.');
   } catch (error) {
     console.error('Seeding failed:', error);
   } finally {
-    await app.close();
+    if (dataSource.isInitialized) {
+      await dataSource.destroy();
+    }
   }
 }
 

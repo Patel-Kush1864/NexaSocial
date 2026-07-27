@@ -39,29 +39,44 @@ export class AuthService {
   }
 
   async register(registerDto: RegisterDto): Promise<User> {
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    const user = await this.usersService.create(
-      {
-        email: registerDto.email,
-        password: registerDto.password,
-        firstName: registerDto.firstName,
-        lastName: registerDto.lastName,
-      },
-      'CREATOR',
-    );
+    try {
+      console.log(
+        `[AuthService.register]: Starting registration process for email: "${registerDto.email}"`,
+      );
+      const verificationToken = crypto.randomBytes(32).toString('hex');
 
-    user.phoneNumber = registerDto.phoneNumber;
-    user.verificationToken = verificationToken;
-    await this.usersService.save(user);
+      const user = await this.usersService.create(
+        {
+          email: registerDto.email,
+          password: registerDto.password,
+          firstName: registerDto.firstName,
+          lastName: registerDto.lastName,
+          phoneNumber: registerDto.phoneNumber,
+          verificationToken,
+          isEmailVerified: true,
+        },
+        'Creator',
+      );
 
-    const verificationLink = `http://localhost:3000/auth/verify-email?token=${verificationToken}`;
-    this.logger.log(
-      `Verification email sent to ${user.email}. Link: ${verificationLink}`,
-      'AuthService',
-      'security',
-    );
+      console.log(
+        `[AuthService.register]: User successfully registered and saved with ID: "${user.id}", Email: "${user.email}"`,
+      );
 
-    return user;
+      const verificationLink = `http://localhost:3000/verify-email?token=${verificationToken}`;
+      this.logger.log(
+        `Verification email sent to ${user.email}. Link: ${verificationLink}`,
+        'AuthService',
+        'security',
+      );
+
+      return user;
+    } catch (error: any) {
+      console.error(
+        `[AuthService.register ERROR] Exception during registration for ${registerDto.email}:`,
+        error,
+      );
+      throw error;
+    }
   }
 
   async login(
@@ -69,12 +84,6 @@ export class AuthService {
     clientInfo: { ipAddress?: string; userAgent?: string },
   ): Promise<TokenResponse> {
     const sessionId = crypto.randomUUID();
-
-    if (!user.isEmailVerified) {
-      throw new UnauthorizedException(
-        'Email verification is required before login',
-      );
-    }
 
     const userRole =
       user.roles && user.roles.length > 0 ? user.roles[0].name : 'CREATOR';

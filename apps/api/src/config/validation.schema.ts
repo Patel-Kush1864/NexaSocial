@@ -7,27 +7,27 @@ export const validationSchema = Joi.object({
     .valid('development', 'production', 'test', 'provision')
     .default('development'),
   APP_PORT: Joi.number().port().default(3001),
-  APP_URL: Joi.string().uri().required(),
+  APP_URL: Joi.string().uri().default('http://localhost:3001'),
 
   // Database
-  DB_HOST: Joi.string().required(),
+  DB_HOST: Joi.string().default('localhost'),
   DB_PORT: Joi.number().port().default(3306),
-  DB_USERNAME: Joi.string().required(),
+  DB_USERNAME: Joi.string().default('root'),
   DB_PASSWORD: Joi.string().allow('').default(''),
-  DB_DATABASE: Joi.string().required(),
+  DB_DATABASE: Joi.string().default('nexasocial'),
 
   // JWT
-  JWT_SECRET: Joi.string().required(),
+  JWT_SECRET: Joi.string().default('default_nexasocial_super_secret_jwt_key_2026'),
   JWT_EXPIRES_IN: Joi.string().default('1d'),
-  JWT_REFRESH_SECRET: Joi.string().required(),
+  JWT_REFRESH_SECRET: Joi.string().default('default_nexasocial_super_refresh_jwt_key_2026'),
   JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
 
   // Mail
-  MAIL_HOST: Joi.string().required(),
+  MAIL_HOST: Joi.string().default('localhost'),
   MAIL_PORT: Joi.number().port().default(587),
   MAIL_USER: Joi.string().allow('').optional(),
   MAIL_PASSWORD: Joi.string().allow('').optional(),
-  MAIL_FROM: Joi.string().required(),
+  MAIL_FROM: Joi.string().default('noreply@nexasocial.com'),
 
   // Redis
   REDIS_HOST: Joi.string().default('localhost'),

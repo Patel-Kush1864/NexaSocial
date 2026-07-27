@@ -11,16 +11,50 @@ function Dialog({ ...props }: DialogPrimitive.Root.Props) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />
 }
 
-function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
-  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
+function DialogTrigger({
+  asChild,
+  children,
+  render,
+  ...props
+}: DialogPrimitive.Trigger.Props & { asChild?: boolean }) {
+  const renderProp =
+    render ?? (asChild && React.isValidElement(children) ? children : undefined)
+  const childrenProp = renderProp ? undefined : children
+
+  return (
+    <DialogPrimitive.Trigger
+      data-slot="dialog-trigger"
+      render={renderProp}
+      {...props}
+    >
+      {childrenProp}
+    </DialogPrimitive.Trigger>
+  )
 }
 
 function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {
   return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
 }
 
-function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
-  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
+function DialogClose({
+  asChild,
+  children,
+  render,
+  ...props
+}: DialogPrimitive.Close.Props & { asChild?: boolean }) {
+  const renderProp =
+    render ?? (asChild && React.isValidElement(children) ? children : undefined)
+  const childrenProp = renderProp ? undefined : children
+
+  return (
+    <DialogPrimitive.Close
+      data-slot="dialog-close"
+      render={renderProp}
+      {...props}
+    >
+      {childrenProp}
+    </DialogPrimitive.Close>
+  )
 }
 
 function DialogOverlay({

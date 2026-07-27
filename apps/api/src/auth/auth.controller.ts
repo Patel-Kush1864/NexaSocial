@@ -35,6 +35,9 @@ export class AuthController {
   @Post('register')
   @Public()
   async register(@Body() registerDto: RegisterDto): Promise<User> {
+    console.log(
+      `[AuthController]: Received registration request for email: "${registerDto.email}", firstName: "${registerDto.firstName}", lastName: "${registerDto.lastName}"`,
+    );
     return this.authService.register(registerDto);
   }
 

@@ -56,6 +56,10 @@ export class DatabaseFilter implements ExceptionFilter {
       'database',
     );
 
+    console.log(
+      `[DatabaseFilter Catch] Path: ${request.url} | Status: ${statusCode} | Code: ${code} | Message: "${message}" | SQL: "${sqlMessage}"`,
+    );
+
     return response.status(statusCode).json({
       success: false,
       statusCode,

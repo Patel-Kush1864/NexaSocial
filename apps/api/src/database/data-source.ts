@@ -20,12 +20,16 @@ export const dataSourceOptions: DataSourceOptions = {
     charset: 'utf8mb4_unicode_ci',
   },
   synchronize: false,
-  logging: process.env.APP_ENV === 'development',
+  logging: true,
   entities: [path.join(__dirname, '/../**/*.entity{.ts,.js}')],
   migrations: [path.join(__dirname, '/migrations/*{.ts,.js}')],
   subscribers: [path.join(__dirname, '/subscribers/*{.ts,.js}')],
   namingStrategy: new SnakeNamingStrategy(),
 };
+
+console.log(
+  `[DataSource Init]: Configured MySQL DataSource options for host: '${dataSourceOptions.host}', database: '${dataSourceOptions.database}'`,
+);
 
 const dataSource = new DataSource(dataSourceOptions);
 export default dataSource;
