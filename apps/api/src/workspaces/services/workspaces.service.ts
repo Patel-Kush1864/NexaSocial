@@ -53,12 +53,13 @@ export class WorkspacesService {
     }
 
     // 2. Generate slug
-    const cleanName = dto.name
+    const rawSlug = dto.slug || dto.name;
+    const cleanSlug = rawSlug
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)+/g, '');
     const randSuffix = Math.random().toString(36).substring(2, 6);
-    const slug = `${cleanName}-${randSuffix}`;
+    const slug = `${cleanSlug}-${randSuffix}`;
 
     // 3. Create & Save Workspace
     const workspace = this.workspaceRepository.create({

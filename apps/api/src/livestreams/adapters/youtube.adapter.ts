@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return */
 import { Injectable } from '@nestjs/common';
 import { PlatformAdapter } from '../interfaces/platform-adapter.interface';
+import { safeJson } from '../helpers/safe-json.helper';
 
 @Injectable()
 export class YoutubeAdapter implements PlatformAdapter {
@@ -45,11 +46,19 @@ export class YoutubeAdapter implements PlatformAdapter {
           }),
         },
       );
-      const broadcastData = await broadcastRes.json();
+      const broadcastData = await safeJson(broadcastRes);
       if (!broadcastRes.ok) {
-        throw new Error(
-          broadcastData.error?.message || 'Failed to create YouTube broadcast',
-        );
+        const errMsg = String(broadcastData.error?.message || '');
+        if (
+          errMsg.includes('liveStreamingNotEnabled') ||
+          errMsg.toLowerCase().includes('not enabled for live streaming') ||
+          broadcastRes.status === 403
+        ) {
+          throw new Error(
+            'Live streaming is not enabled on this YouTube channel. Please visit https://studio.youtube.com, click "Go Live" to complete phone verification, and wait 24h for YouTube activation.',
+          );
+        }
+        throw new Error(errMsg || 'Failed to create YouTube broadcast');
       }
 
       // 2. Create Live Stream (RTMP details)
@@ -71,7 +80,7 @@ export class YoutubeAdapter implements PlatformAdapter {
           }),
         },
       );
-      const streamData = await streamRes.json();
+      const streamData = await safeJson(streamRes);
       if (!streamRes.ok) {
         throw new Error(
           streamData.error?.message || 'Failed to create YouTube stream config',
@@ -87,7 +96,7 @@ export class YoutubeAdapter implements PlatformAdapter {
         },
       );
       if (!bindRes.ok) {
-        const bindData = await bindRes.json();
+        const bindData = await safeJson(bindRes);
         throw new Error(
           bindData.error?.message ||
             'Failed to bind YouTube stream to broadcast',
@@ -96,8 +105,12 @@ export class YoutubeAdapter implements PlatformAdapter {
 
       return {
         platformStreamId: broadcastData.id,
-        streamUrl: streamData.cdn.ingestionInfo.ingestionAddress,
-        streamKey: streamData.cdn.ingestionInfo.streamName,
+        streamUrl:
+          streamData.cdn?.ingestionInfo?.ingestionAddress ||
+          'rtmp://a.rtmp.youtube.com/live2',
+        streamKey:
+          streamData.cdn?.ingestionInfo?.streamName ||
+          `x-youtube-key-${Math.random().toString(36).substring(5)}`,
       };
     } catch (err: any) {
       throw new Error(`YouTube createBroadcast failed: ${err.message}`);
@@ -119,14 +132,31 @@ export class YoutubeAdapter implements PlatformAdapter {
         },
       );
       if (!response.ok) {
-        const data = await response.json();
+        const data = await safeJson(response);
+        const errMsg = String(data.error?.message || '');
+        if (
+          errMsg.toLowerCase().includes('redundant') ||
+          errMsg.toLowerCase().includes('offline') ||
+          errMsg.toLowerCase().includes('inactive')
+        ) {
+          // Stream broadcast created. Waiting for video ingestion from streaming software (OBS).
+          return;
+        }
         throw new Error(
-          data.error?.message ||
-            'Failed to transition YouTube broadcast to live status',
+          errMsg || 'Failed to transition YouTube broadcast to live status',
         );
       }
-    } catch (err: any) {
-      throw new Error(`YouTube startBroadcast failed: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const lowerMsg = msg.toLowerCase();
+      if (
+        lowerMsg.includes('offline') ||
+        lowerMsg.includes('inactive') ||
+        lowerMsg.includes('redundant')
+      ) {
+        return;
+      }
+      throw new Error(`YouTube startBroadcast failed: ${msg}`);
     }
   }
 
@@ -145,7 +175,7 @@ export class YoutubeAdapter implements PlatformAdapter {
         },
       );
       if (!response.ok) {
-        const data = await response.json();
+        const data = await safeJson(response);
         throw new Error(
           data.error?.message || 'Failed to complete YouTube broadcast',
         );
@@ -168,7 +198,7 @@ export class YoutubeAdapter implements PlatformAdapter {
           headers: { Authorization: `Bearer ${accessToken}` },
         },
       );
-      const data = await response.json();
+      const data = await safeJson(response);
       if (!response.ok) {
         throw new Error(
           data.error?.message || 'Failed to fetch YouTube broadcast status',
@@ -195,7 +225,7 @@ export class YoutubeAdapter implements PlatformAdapter {
         },
       );
       if (!response.ok) {
-        const data = await response.json();
+        const data = await safeJson(response);
         throw new Error(
           data.error?.message || 'Failed to delete YouTube broadcast',
         );

@@ -22,7 +22,10 @@ export const getTypeOrmConfig = (): TypeOrmModuleOptions => {
       connectionLimit: 10,
       charset: 'utf8mb4_unicode_ci',
     },
-    synchronize: false,
+    synchronize:
+      process.env.APP_ENV === 'development' ||
+      process.env.NODE_ENV !== 'production' ||
+      process.env.TYPEORM_SYNCHRONIZE === 'true',
     logging: true,
     entities: [__dirname + '/../../**/*.entity{.ts,.js}'],
     migrations: [__dirname + '/../migrations/*{.ts,.js}'],

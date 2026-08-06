@@ -12,7 +12,7 @@ const getApiBaseUrl = () => {
   if (typeof window !== 'undefined') {
     return '/api';
   }
-  return 'http://localhost:3001';
+  return 'http://localhost:5000/api';
 };
 
 // Create the Axios instance

@@ -218,6 +218,6 @@ export const APP_CONFIG = {
   description: 'Enterprise Social Media & Live Streaming Management Platform',
   version: '1.0.0',
   defaultTheme: 'dark' as const,
-  apiBaseUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001',
-  wsUrl: process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3001',
+  apiBaseUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000',
+  wsUrl: process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:5000',
 } as const;

@@ -10,8 +10,15 @@ export default registerAs('oauth', () => ({
     clientSecret: process.env.YOUTUBE_CLIENT_SECRET,
   },
   facebook: {
-    clientId: process.env.FACEBOOK_CLIENT_ID,
-    clientSecret: process.env.FACEBOOK_CLIENT_SECRET,
+    appId: process.env.FACEBOOK_APP_ID || process.env.FACEBOOK_CLIENT_ID,
+    appSecret:
+      process.env.FACEBOOK_APP_SECRET || process.env.FACEBOOK_CLIENT_SECRET,
+    redirectUri:
+      process.env.FACEBOOK_CALLBACK_URL ||
+      process.env.FACEBOOK_REDIRECT_URI ||
+      'http://localhost:5000/api/social/facebook/callback',
+    graphVersion: process.env.FACEBOOK_GRAPH_VERSION || 'v23.0',
+    scopes: ['public_profile', 'email'],
   },
   linkedin: {
     clientId: process.env.LINKEDIN_CLIENT_ID,

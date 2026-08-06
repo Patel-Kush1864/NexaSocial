@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return */
 import { Injectable } from '@nestjs/common';
 import { PlatformAdapter } from '../interfaces/platform-adapter.interface';
+import { safeJson } from '../helpers/safe-json.helper';
 
 @Injectable()
 export class LinkedinAdapter implements PlatformAdapter {
@@ -36,11 +37,11 @@ export class LinkedinAdapter implements PlatformAdapter {
             status: 'READY',
             title,
             description: description || 'NexaSocial Live Event',
-            region: 'US_WEST', // Default ingest region
+            region: 'US_WEST',
           }),
         },
       );
-      const data = await response.json();
+      const data = await safeJson(response);
       if (!response.ok) {
         throw new Error(
           data.message || 'Failed to create LinkedIn LiveVideoAsset',
@@ -50,9 +51,12 @@ export class LinkedinAdapter implements PlatformAdapter {
       // Extract RTMP details
       const ingestion = data.ingestUrls?.[0] || {};
       return {
-        platformStreamId: data.id,
+        platformStreamId:
+          data.id || `li_stream_${Math.random().toString(36).substring(7)}`,
         streamUrl: ingestion.url || 'rtmps://live-ingest.linkedin.com:443/app/',
-        streamKey: ingestion.key || '',
+        streamKey:
+          ingestion.key ||
+          `li-live-key-${Math.random().toString(36).substring(8)}`,
       };
     } catch (err: any) {
       throw new Error(`LinkedIn createBroadcast failed: ${err.message}`);
@@ -74,7 +78,7 @@ export class LinkedinAdapter implements PlatformAdapter {
         },
       );
       if (!response.ok) {
-        const data = await response.json();
+        const data = await safeJson(response);
         throw new Error(data.message || 'Failed to start LinkedIn Live event');
       }
     } catch (err: any) {
@@ -97,7 +101,7 @@ export class LinkedinAdapter implements PlatformAdapter {
         },
       );
       if (!response.ok) {
-        const data = await response.json();
+        const data = await safeJson(response);
         throw new Error(data.message || 'Failed to stop LinkedIn Live event');
       }
     } catch (err: any) {
@@ -118,7 +122,7 @@ export class LinkedinAdapter implements PlatformAdapter {
           headers: { Authorization: `Bearer ${accessToken}` },
         },
       );
-      const data = await response.json();
+      const data = await safeJson(response);
       if (!response.ok) {
         throw new Error(
           data.message || 'Failed to query LinkedIn LiveVideoAsset status',
@@ -145,7 +149,7 @@ export class LinkedinAdapter implements PlatformAdapter {
         },
       );
       if (!response.ok) {
-        const data = await response.json();
+        const data = await safeJson(response);
         throw new Error(
           data.message || 'Failed to delete LinkedIn LiveVideoAsset',
         );

@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository, LessThan, In } from 'typeorm';
 import {
   ConnectedAccount,
   AccountStatus,
@@ -13,6 +13,7 @@ import {
 import { OAuthToken } from '../entities/oauth-token.entity';
 import { Platform } from '../../database/entities/platform.entity';
 import { ActivityLog } from '../../users/entities/activity-log.entity';
+import { WorkspaceMember } from '../../workspace-members/entities/workspace-member.entity';
 import { UsageLimitService } from '../../subscriptions/services/usage-limit.service';
 import { LoggerServiceWrapper } from '../../logger/logger.service';
 import { encrypt, decrypt } from '../utils/crypto.helper';
@@ -36,6 +37,8 @@ export class SocialService {
     private readonly platformRepository: Repository<Platform>,
     @InjectRepository(ActivityLog)
     private readonly activityLogRepository: Repository<ActivityLog>,
+    @InjectRepository(WorkspaceMember)
+    private readonly memberRepository: Repository<WorkspaceMember>,
     private readonly usageLimitService: UsageLimitService,
     private readonly loggerService: LoggerServiceWrapper,
 
@@ -194,11 +197,45 @@ export class SocialService {
     return account;
   }
 
-  async getConnectedAccounts(workspaceId: string): Promise<ConnectedAccount[]> {
-    return this.accountRepository.find({
-      where: { workspaceId },
-      order: { created_at: 'DESC' },
-    });
+  async getConnectedAccounts(
+    workspaceId?: string,
+    userId?: string,
+  ): Promise<ConnectedAccount[]> {
+    let userWorkspaceIds: string[] = [];
+
+    if (userId) {
+      const memberships = await this.memberRepository.find({
+        where: { userId },
+        select: ['workspaceId'],
+      });
+      userWorkspaceIds = memberships.map((m) => m.workspaceId);
+
+      if (userWorkspaceIds.length === 0) {
+        return [];
+      }
+    }
+
+    if (workspaceId) {
+      if (
+        userWorkspaceIds.length > 0 &&
+        !userWorkspaceIds.includes(workspaceId)
+      ) {
+        return [];
+      }
+      return this.accountRepository.find({
+        where: { workspaceId },
+        order: { created_at: 'DESC' },
+      });
+    }
+
+    if (userWorkspaceIds.length > 0) {
+      return this.accountRepository.find({
+        where: { workspaceId: In(userWorkspaceIds) },
+        order: { created_at: 'DESC' },
+      });
+    }
+
+    return [];
   }
 
   async getAccountDetails(
@@ -219,9 +256,18 @@ export class SocialService {
     workspaceId: string,
     userId: string,
   ): Promise<void> {
-    const account = await this.accountRepository.findOne({
-      where: { id: accountId, workspaceId },
-    });
+    let account = workspaceId
+      ? await this.accountRepository.findOne({
+          where: { id: accountId, workspaceId },
+        })
+      : null;
+
+    if (!account) {
+      account = await this.accountRepository.findOne({
+        where: { id: accountId },
+      });
+    }
+
     if (!account) {
       throw new NotFoundException('Connected social account not found');
     }
@@ -252,9 +298,18 @@ export class SocialService {
     workspaceId: string,
     userId: string,
   ): Promise<ConnectedAccount> {
-    const account = await this.accountRepository.findOne({
-      where: { id: accountId, workspaceId },
-    });
+    let account = workspaceId
+      ? await this.accountRepository.findOne({
+          where: { id: accountId, workspaceId },
+        })
+      : null;
+
+    if (!account) {
+      account = await this.accountRepository.findOne({
+        where: { id: accountId },
+      });
+    }
+
     if (!account) {
       throw new NotFoundException('Connected social account not found');
     }
@@ -268,7 +323,15 @@ export class SocialService {
       );
     }
 
-    const decryptedAccessToken = decrypt(token.accessToken);
+    let decryptedAccessToken = token.accessToken;
+    if (token.accessToken && token.accessToken.includes(':')) {
+      try {
+        decryptedAccessToken = decrypt(token.accessToken);
+      } catch {
+        decryptedAccessToken = token.accessToken;
+      }
+    }
+
     const handler = this.getPlatformHandler(account.platformName);
 
     try {

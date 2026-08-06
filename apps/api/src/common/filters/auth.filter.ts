@@ -38,18 +38,27 @@ export class AuthFilter implements ExceptionFilter {
 
     // JWT Error mappings
     const lowerMessage = message.toLowerCase();
-    if (lowerMessage.includes('expired')) {
-      message = 'Access token has expired';
-    } else if (
-      lowerMessage.includes('invalid') ||
-      lowerMessage.includes('malformed')
-    ) {
-      message = 'Invalid access token';
-    } else if (
-      lowerMessage.includes('no auth') ||
-      lowerMessage.includes('missing')
-    ) {
-      message = 'Authentication required';
+    const isSpecificAuthError =
+      lowerMessage.includes('email') ||
+      lowerMessage.includes('password') ||
+      lowerMessage.includes('refresh token') ||
+      lowerMessage.includes('session');
+
+    if (!isSpecificAuthError) {
+      if (lowerMessage.includes('expired')) {
+        message = 'Access token has expired';
+      } else if (
+        lowerMessage.includes('invalid') ||
+        lowerMessage.includes('malformed') ||
+        lowerMessage.includes('jwt')
+      ) {
+        message = 'Invalid access token';
+      } else if (
+        lowerMessage.includes('no auth') ||
+        lowerMessage.includes('missing')
+      ) {
+        message = 'Authentication required';
+      }
     }
 
     this.logger.warn(

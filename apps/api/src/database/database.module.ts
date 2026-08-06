@@ -10,4 +10,4 @@ import { getTypeOrmConfig } from './config/typeorm.config';
   ],
   exports: [TypeOrmModule],
 })
-export class DatabaseModule { }
+export class DatabaseModule {}

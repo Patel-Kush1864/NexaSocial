@@ -1,11 +1,14 @@
 'use client';
 
+import { useEffect } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useSocialAccounts } from '@/hooks/use-social';
 import { PageHeader } from '@/components/shared/page-header';
 import { SocialAccountCard } from '@/components/cards/social-account-card';
 import { ConnectPlatformCard } from '@/components/cards/connect-platform-card';
 import { LoadingSpinner } from '@/components/shared/loading-spinner';
+import { toast } from 'sonner';
 import type { SocialPlatform } from '@/types';
 
 const ALL_PLATFORMS: SocialPlatform[] = [
@@ -19,10 +22,29 @@ const ALL_PLATFORMS: SocialPlatform[] = [
 ];
 
 export function SocialPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const { currentWorkspace } = useWorkspaceStore();
   const { accounts, isLoading, connect, sync, disconnect } = useSocialAccounts(
     currentWorkspace?.id,
   );
+
+  useEffect(() => {
+    const connectedParam = searchParams.get('connected');
+    const errorParam = searchParams.get('error');
+
+    if (connectedParam) {
+      const platformName =
+        connectedParam.toLowerCase() === 'youtube'
+          ? 'YouTube'
+          : connectedParam.charAt(0).toUpperCase() + connectedParam.slice(1);
+      toast.success(`${platformName} channel connected successfully!`);
+      router.replace('/social');
+    } else if (errorParam) {
+      toast.error(`Account connection failed: ${errorParam}`);
+      router.replace('/social');
+    }
+  }, [searchParams, router]);
 
   if (isLoading) {
     return <LoadingSpinner size="lg" label="Loading connected social channels..." />;
@@ -30,14 +52,14 @@ export function SocialPage() {
 
   const connectedPlatformKeys = new Set(accounts.map((a) => a.platform));
   const availablePlatforms = ALL_PLATFORMS.filter(
-    (p) => !connectedPlatformKeys.has(p),
+    (p) => !connectedPlatformKeys.has(p) || p === 'FACEBOOK', // Facebook supports connecting multiple pages
   );
 
   return (
     <div className="space-y-8">
       <PageHeader
         title="Social Accounts"
-        description="Connect and manage your social channels across all 7 major platforms."
+        description="Connect and manage your social channels across all major platforms."
         badge={`${accounts.length} Connected`}
       />
 
@@ -57,9 +79,9 @@ export function SocialPage() {
               <SocialAccountCard
                 key={acc.id}
                 account={acc}
-                onSync={(id) => sync({ accountId: id, workspaceId: currentWorkspace!.id })}
+                onSync={(id) => sync({ accountId: id, workspaceId: currentWorkspace?.id || '' })}
                 onDisconnect={(id) =>
-                  disconnect({ accountId: id, workspaceId: currentWorkspace!.id })
+                  disconnect({ accountId: id, workspaceId: currentWorkspace?.id || '' })
                 }
               />
             ))}
@@ -75,7 +97,7 @@ export function SocialPage() {
             <ConnectPlatformCard
               key={pKey}
               platformKey={pKey}
-              onConnect={(p) => connect({ platform: p, workspaceId: currentWorkspace!.id })}
+              onConnect={(p) => connect({ platform: p, workspaceId: currentWorkspace?.id || '' })}
             />
           ))}
         </div>

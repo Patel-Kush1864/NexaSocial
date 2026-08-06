@@ -6,8 +6,8 @@ export const validationSchema = Joi.object({
   APP_ENV: Joi.string()
     .valid('development', 'production', 'test', 'provision')
     .default('development'),
-  APP_PORT: Joi.number().port().default(3001),
-  APP_URL: Joi.string().uri().default('http://localhost:3001'),
+  APP_PORT: Joi.number().port().default(5000),
+  APP_URL: Joi.string().uri().default('http://localhost:5000'),
 
   // Database
   DB_HOST: Joi.string().default('localhost'),
@@ -17,9 +17,13 @@ export const validationSchema = Joi.object({
   DB_DATABASE: Joi.string().default('nexasocial'),
 
   // JWT
-  JWT_SECRET: Joi.string().default('default_nexasocial_super_secret_jwt_key_2026'),
+  JWT_SECRET: Joi.string().default(
+    'default_nexasocial_super_secret_jwt_key_2026',
+  ),
   JWT_EXPIRES_IN: Joi.string().default('1d'),
-  JWT_REFRESH_SECRET: Joi.string().default('default_nexasocial_super_refresh_jwt_key_2026'),
+  JWT_REFRESH_SECRET: Joi.string().default(
+    'default_nexasocial_super_refresh_jwt_key_2026',
+  ),
   JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
 
   // Mail
@@ -43,8 +47,13 @@ export const validationSchema = Joi.object({
   YOUTUBE_CLIENT_SECRET: Joi.string().allow('').optional(),
 
   // Facebook
+  FACEBOOK_APP_ID: Joi.string().allow('').optional(),
+  FACEBOOK_APP_SECRET: Joi.string().allow('').optional(),
   FACEBOOK_CLIENT_ID: Joi.string().allow('').optional(),
   FACEBOOK_CLIENT_SECRET: Joi.string().allow('').optional(),
+  FACEBOOK_CALLBACK_URL: Joi.string().uri().allow('').optional(),
+  FACEBOOK_REDIRECT_URI: Joi.string().uri().allow('').optional(),
+  FACEBOOK_GRAPH_VERSION: Joi.string().default('v23.0'),
 
   // Google OAuth
   GOOGLE_CLIENT_ID: Joi.string().allow('').optional(),

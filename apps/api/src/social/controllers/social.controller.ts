@@ -6,10 +6,11 @@ import {
   Param,
   Body,
   Query,
+  Res,
   UseGuards,
   BadRequestException,
-  Redirect,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { SocialService } from '../services/social.service';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
@@ -39,36 +40,52 @@ export class SocialController {
     if (!user) {
       throw new BadRequestException('User context missing');
     }
-    return this.socialService.connect(platform, workspaceId, user.id);
+    const result = await this.socialService.connect(
+      platform,
+      workspaceId,
+      user.id,
+    );
+    return { url: result.url, authUrl: result.url };
   }
 
   // OAuth Redirect Callback (Public)
   @Get('callback/:platform')
-  @Redirect('http://localhost:3000/dashboard/settings?tab=accounts', 302)
   async callback(
     @Param('platform') platform: string,
     @Query('code') code: string,
     @Query('state') state: string,
+    @Res() res: Response,
   ) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     if (!code || !state) {
-      throw new BadRequestException('Missing code or state state parameter');
+      return res.redirect(
+        `${frontendUrl}/social?error=${encodeURIComponent(
+          'Missing OAuth code or state parameter',
+        )}`,
+      );
     }
-    await this.socialService.handleCallback(platform, code, state);
-    return {
-      url: 'http://localhost:3000/dashboard/settings?tab=accounts&status=success',
-    };
+    try {
+      await this.socialService.handleCallback(platform, code, state);
+      return res.redirect(
+        `${frontendUrl}/social?connected=${platform.toLowerCase()}`,
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return res.redirect(
+        `${frontendUrl}/social?error=${encodeURIComponent(
+          msg || 'OAuth connection failed',
+        )}`,
+      );
+    }
   }
 
   @Get('accounts')
-  @UseGuards(JwtAuthGuard, WorkspaceRoleGuard)
-  @RequireWorkspaceRole(
-    WorkspaceRole.OWNER,
-    WorkspaceRole.MANAGER,
-    WorkspaceRole.CREATOR,
-    WorkspaceRole.VIEWER,
-  )
-  async getConnectedAccounts(@Query('workspaceId') workspaceId: string) {
-    return this.socialService.getConnectedAccounts(workspaceId);
+  @UseGuards(JwtAuthGuard)
+  async getConnectedAccounts(
+    @CurrentUser() user: CurrentUserType,
+    @Query('workspaceId') workspaceId?: string,
+  ) {
+    return this.socialService.getConnectedAccounts(workspaceId, user?.id);
   }
 
   @Get('accounts/:accountId')

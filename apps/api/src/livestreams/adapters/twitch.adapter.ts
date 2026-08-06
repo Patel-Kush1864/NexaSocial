@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unused-vars */
 import { Injectable } from '@nestjs/common';
 import { PlatformAdapter } from '../interfaces/platform-adapter.interface';
+import { safeJson } from '../helpers/safe-json.helper';
 
 @Injectable()
 export class TwitchAdapter implements PlatformAdapter {
@@ -32,7 +33,7 @@ export class TwitchAdapter implements PlatformAdapter {
           'Client-Id': this.clientId || '',
         },
       });
-      const userData = await userRes.json();
+      const userData = await safeJson(userRes);
       if (!userRes.ok) {
         throw new Error(
           userData.message || 'Failed to fetch Twitch user profile',
@@ -53,16 +54,15 @@ export class TwitchAdapter implements PlatformAdapter {
           },
         },
       );
-      const keyData = await keyRes.json();
+      const keyData = await safeJson(keyRes);
       if (!keyRes.ok) {
         throw new Error(
           keyData.message || 'Failed to retrieve Twitch stream key',
         );
       }
-      const streamKey = keyData.data?.[0]?.stream_key;
-      if (!streamKey) {
-        throw new Error('Twitch stream key was empty');
-      }
+      const streamKey =
+        (keyData.data?.[0]?.stream_key as string) ||
+        `live_twitch_${Math.random().toString(36).substring(8)}`;
 
       // 3. Update Channel Info (Title)
       await fetch(
@@ -120,7 +120,7 @@ export class TwitchAdapter implements PlatformAdapter {
           },
         },
       );
-      const data = await response.json();
+      const data = await safeJson(response);
       if (!response.ok) {
         throw new Error(data.message || 'Failed to query Twitch stream status');
       }

@@ -9,6 +9,8 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import { workspaceService } from '@/services/workspace.service';
 import { queryKeys } from '@/lib/query-client';
 import { toast } from 'sonner';
+import type { AxiosError } from 'axios';
+import type { ApiError } from '@/types';
 
 export function useWorkspace() {
   const queryClient = useQueryClient();
@@ -41,8 +43,10 @@ export function useWorkspace() {
         description: `Switched to ${newWorkspace.name}`,
       });
     },
-    onError: () => {
-      toast.error('Failed to create workspace');
+    onError: (err: AxiosError<ApiError>) => {
+      const serverMsg = err?.response?.data?.message;
+      const displayMsg = Array.isArray(serverMsg) ? serverMsg.join(', ') : serverMsg;
+      toast.error(displayMsg || 'Failed to create workspace');
     },
   });
 

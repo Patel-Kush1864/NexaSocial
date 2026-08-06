@@ -31,6 +31,9 @@ async function bootstrap() {
       ],
     });
 
+    // Set global API prefix
+    app.setGlobalPrefix('api');
+
     // Global Validation Pipe
     app.useGlobalPipes(new ValidationPipe());
 
@@ -42,7 +45,7 @@ async function bootstrap() {
       new ValidationFilter(),
     );
 
-    const port = Number(process.env.PORT ?? process.env.APP_PORT ?? 3001);
+    const port = Number(process.env.PORT ?? process.env.APP_PORT ?? 5000);
     const host = '0.0.0.0';
 
     await app.listen(port, host);

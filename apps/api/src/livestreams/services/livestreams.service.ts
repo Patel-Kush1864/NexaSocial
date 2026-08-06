@@ -4,7 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, LessThanOrEqual } from 'typeorm';
+import { Repository, In, LessThanOrEqual, FindOptionsWhere } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   LiveStream,
@@ -91,13 +91,17 @@ export class LiveStreamsService {
     }
 
     // 2. Validate connected accounts belong to workspace
-    const accounts = await this.accountRepository.find({
-      where: { id: In(dto.connectedAccountIds), workspaceId },
-    });
-    if (accounts.length !== dto.connectedAccountIds.length) {
-      throw new BadRequestException(
-        'Selected connected accounts are invalid for this workspace.',
-      );
+    const accountIds = dto.connectedAccountIds || dto.platformAccountIds || [];
+    let accounts: ConnectedAccount[] = [];
+    if (accountIds.length > 0) {
+      accounts = await this.accountRepository.find({
+        where: { id: In(accountIds), workspaceId },
+      });
+      if (accounts.length !== accountIds.length) {
+        throw new BadRequestException(
+          'Selected connected accounts are invalid for this workspace.',
+        );
+      }
     }
 
     // 3. Create LiveStream entity (DRAFT status)
@@ -122,14 +126,16 @@ export class LiveStreamsService {
     await this.streamRepository.save(stream);
 
     // 4. Create StreamPlatform entities
-    const streamPlatforms = accounts.map((acc) =>
-      this.streamPlatformRepository.create({
-        streamId: stream.id,
-        connectedAccountId: acc.id,
-        status: StreamPlatformStatus.PENDING,
-      }),
-    );
-    await this.streamPlatformRepository.save(streamPlatforms);
+    if (accounts.length > 0) {
+      const streamPlatforms = accounts.map((acc) =>
+        this.streamPlatformRepository.create({
+          streamId: stream.id,
+          connectedAccountId: acc.id,
+          status: StreamPlatformStatus.PENDING,
+        }),
+      );
+      await this.streamPlatformRepository.save(streamPlatforms);
+    }
 
     // 5. Log activity & publish domain event
     await this.activityLogRepository.save(
@@ -203,11 +209,12 @@ export class LiveStreamsService {
     await this.streamRepository.save(stream);
 
     // Update platform mappings if specified
-    if (dto.connectedAccountIds) {
+    const updateAccountIds = dto.connectedAccountIds || dto.platformAccountIds;
+    if (updateAccountIds) {
       const accounts = await this.accountRepository.find({
-        where: { id: In(dto.connectedAccountIds), workspaceId },
+        where: { id: In(updateAccountIds), workspaceId },
       });
-      if (accounts.length !== dto.connectedAccountIds.length) {
+      if (accounts.length !== updateAccountIds.length) {
         throw new BadRequestException(
           'Selected connected accounts are invalid.',
         );
@@ -298,11 +305,15 @@ export class LiveStreamsService {
 
   async startStream(
     id: string,
-    workspaceId: string,
-    userId: string,
+    workspaceId?: string,
+    userId?: string,
   ): Promise<LiveStream> {
+    const where: FindOptionsWhere<LiveStream> = { id };
+    if (workspaceId) {
+      where.workspaceId = workspaceId;
+    }
     const stream = await this.streamRepository.findOne({
-      where: { id, workspaceId },
+      where,
       relations: { platforms: { connectedAccount: true } },
     });
     if (!stream) {
@@ -334,7 +345,15 @@ export class LiveStreamsService {
           );
         }
 
-        const decryptedAccessToken = decrypt(token.accessToken);
+        let decryptedAccessToken = token.accessToken;
+        if (token.accessToken && token.accessToken.includes(':')) {
+          try {
+            decryptedAccessToken = decrypt(token.accessToken);
+          } catch {
+            decryptedAccessToken = token.accessToken;
+          }
+        }
+
         const adapter = this.getPlatformAdapter(platformName);
 
         // 1. Create remote broadcast
@@ -382,37 +401,43 @@ export class LiveStreamsService {
       key: p.streamKey,
       status: p.status,
     }));
-    this.streamGateway.emitStreamStarted(workspaceId, id, details);
+    this.streamGateway.emitStreamStarted(stream.workspaceId, id, details);
 
     // Log Activity & Domain Event
-    await this.activityLogRepository.save(
-      this.activityLogRepository.create({
-        userId,
-        action: 'STREAM_STARTED',
-        metadata: {
-          workspaceId,
-          streamId: id,
-          platformsCount: platforms.length,
-          activePlatformsCount: successCount,
-        },
-      }),
-    );
+    if (userId) {
+      await this.activityLogRepository.save(
+        this.activityLogRepository.create({
+          userId,
+          action: 'STREAM_STARTED',
+          metadata: {
+            workspaceId: stream.workspaceId,
+            streamId: id,
+            platformsCount: platforms.length,
+            activePlatformsCount: successCount,
+          },
+        }),
+      );
 
-    this.eventEmitter.emit(
-      'stream.started',
-      new StreamStartedEvent(id, workspaceId, userId, successCount),
-    );
+      this.eventEmitter.emit(
+        'stream.started',
+        new StreamStartedEvent(id, stream.workspaceId, userId, successCount),
+      );
+    }
 
-    return this.getStreamDetails(id, workspaceId);
+    return this.getStreamDetails(id, stream.workspaceId);
   }
 
   async stopStream(
     id: string,
-    workspaceId: string,
-    userId: string,
+    workspaceId?: string,
+    userId?: string,
   ): Promise<LiveStream> {
+    const where: FindOptionsWhere<LiveStream> = { id };
+    if (workspaceId) {
+      where.workspaceId = workspaceId;
+    }
     const stream = await this.streamRepository.findOne({
-      where: { id, workspaceId },
+      where,
       relations: { platforms: { connectedAccount: true } },
     });
     if (!stream) {
@@ -446,7 +471,14 @@ export class LiveStreamsService {
             where: { connectedAccountId: mapping.connectedAccountId },
           });
           if (token) {
-            const decryptedAccessToken = decrypt(token.accessToken);
+            let decryptedAccessToken = token.accessToken;
+            if (token.accessToken && token.accessToken.includes(':')) {
+              try {
+                decryptedAccessToken = decrypt(token.accessToken);
+              } catch {
+                decryptedAccessToken = token.accessToken;
+              }
+            }
             const platformName = mapping.connectedAccount?.platformName || '';
             const adapter = this.getPlatformAdapter(platformName);
             await adapter.stopBroadcast(
@@ -469,29 +501,35 @@ export class LiveStreamsService {
     }
 
     // WebSocket update
-    this.streamGateway.emitStreamStopped(workspaceId, id);
-    this.streamGateway.emitStreamEnded(workspaceId, id);
+    this.streamGateway.emitStreamStopped(stream.workspaceId, id);
+    this.streamGateway.emitStreamEnded(stream.workspaceId, id);
 
     // Log Activity & Domain Events
-    await this.activityLogRepository.save(
-      this.activityLogRepository.create({
-        userId,
-        action: 'STREAM_STOPPED',
-        metadata: { workspaceId, streamId: id, durationSeconds },
-      }),
-    );
+    if (userId) {
+      await this.activityLogRepository.save(
+        this.activityLogRepository.create({
+          userId,
+          action: 'STREAM_STOPPED',
+          metadata: {
+            workspaceId: stream.workspaceId,
+            streamId: id,
+            durationSeconds,
+          },
+        }),
+      );
 
-    this.eventEmitter.emit(
-      'stream.stopped',
-      new StreamStoppedEvent(id, workspaceId, userId, durationSeconds),
-    );
+      this.eventEmitter.emit(
+        'stream.stopped',
+        new StreamStoppedEvent(id, stream.workspaceId, userId, durationSeconds),
+      );
+    }
 
     this.eventEmitter.emit(
       'stream.ended',
-      new StreamEndedEvent(id, workspaceId, endedAt),
+      new StreamEndedEvent(id, stream.workspaceId, endedAt),
     );
 
-    return this.getStreamDetails(id, workspaceId);
+    return this.getStreamDetails(id, stream.workspaceId);
   }
 
   async getHistory(workspaceId: string): Promise<LiveStream[]> {
@@ -532,9 +570,17 @@ export class LiveStreamsService {
     };
   }
 
-  async getStreamDetails(id: string, workspaceId: string): Promise<LiveStream> {
+  async getStreamDetails(
+    id: string,
+    workspaceId?: string,
+  ): Promise<LiveStream> {
+    const where: FindOptionsWhere<LiveStream> = { id };
+    if (workspaceId) {
+      where.workspaceId = workspaceId;
+    }
+
     const stream = await this.streamRepository.findOne({
-      where: { id, workspaceId },
+      where,
       relations: { platforms: { connectedAccount: true } },
     });
     if (!stream) {

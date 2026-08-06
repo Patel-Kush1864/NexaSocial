@@ -8,11 +8,25 @@ import type { LiveStream, StreamDashboardStats, SuccessResponse } from '@/types'
 export const livestreamService = {
   async create(
     workspaceId: string,
-    payload: { title: string; description?: string; platformAccountIds?: string[] },
+    payload: {
+      title: string;
+      description?: string;
+      platformAccountIds?: string[];
+      connectedAccountIds?: string[];
+    },
   ): Promise<LiveStream> {
-    const { data } = await apiClient.post<LiveStream>('/livestreams', payload, {
-      params: { workspaceId },
-    });
+    const accountIds = payload.connectedAccountIds || payload.platformAccountIds || [];
+    const { data } = await apiClient.post<LiveStream>(
+      '/livestreams',
+      {
+        ...payload,
+        connectedAccountIds: accountIds,
+        platformAccountIds: accountIds,
+      },
+      {
+        params: { workspaceId },
+      },
+    );
     return data;
   },
 
@@ -53,7 +67,7 @@ export const livestreamService = {
   async start(id: string, workspaceId: string): Promise<LiveStream> {
     const { data } = await apiClient.post<LiveStream>(
       `/livestreams/${id}/start`,
-      null,
+      {},
       { params: { workspaceId } },
     );
     return data;
@@ -62,7 +76,7 @@ export const livestreamService = {
   async stop(id: string, workspaceId: string): Promise<LiveStream> {
     const { data } = await apiClient.post<LiveStream>(
       `/livestreams/${id}/stop`,
-      null,
+      {},
       { params: { workspaceId } },
     );
     return data;

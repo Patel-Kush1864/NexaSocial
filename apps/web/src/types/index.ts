@@ -119,6 +119,21 @@ export interface SocialPlatformInfo {
   icon: string;
 }
 
+export interface FacebookAccountResponse {
+  id: string;
+  userId: string;
+  provider: string;
+  providerUserId: string;
+  providerUserName: string;
+  providerEmail?: string;
+  pageId?: string;
+  pageName?: string;
+  status: string;
+  connectedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── Live Streams ──────────────────────────
 export type StreamStatus =
   | 'IDLE'
@@ -319,6 +334,7 @@ export interface ApiError {
   statusCode: number;
   message: string | string[];
   error: string;
+  details?: Array<{ field?: string; message?: string }>;
 }
 
 export interface SuccessResponse {

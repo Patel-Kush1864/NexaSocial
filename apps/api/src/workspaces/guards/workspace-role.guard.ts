@@ -41,10 +41,10 @@ export class WorkspaceRoleGuard implements CanActivate {
 
     // Extract workspace ID from headers, query, or path parameters
     const workspaceId =
-      request.headers['x-workspace-id'] ||
-      request.params.workspaceId ||
-      request.params.id ||
-      request.query.workspaceId;
+      (request.headers['x-workspace-id'] as string) ||
+      (request.query.workspaceId as string) ||
+      (request.params.workspaceId as string) ||
+      (request.params.id as string);
 
     if (!workspaceId) {
       throw new ForbiddenException(

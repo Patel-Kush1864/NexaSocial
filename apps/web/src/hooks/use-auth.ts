@@ -11,7 +11,8 @@ import { authService } from '@/services/auth.service';
 import { userService } from '@/services/user.service';
 import { setAccessToken } from '@/lib/api-client';
 import { toast } from 'sonner';
-import type { LoginCredentials, RegisterPayload } from '@/types';
+import type { AxiosError } from 'axios';
+import type { ApiError, LoginCredentials, RegisterPayload } from '@/types';
 
 export function useAuth() {
   const router = useRouter();
@@ -19,7 +20,11 @@ export function useAuth() {
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginCredentials) => {
-      const tokens = await authService.login(credentials);
+      const normalizedCredentials = {
+        ...credentials,
+        email: credentials.email.trim().toLowerCase(),
+      };
+      const tokens = await authService.login(normalizedCredentials);
       setAccessToken(tokens.accessToken);
       localStorage.setItem('nexasocial_refresh_token', tokens.refreshToken);
 
@@ -33,7 +38,7 @@ export function useAuth() {
       });
       router.push('/dashboard');
     },
-    onError: (error: any) => {
+    onError: (error: AxiosError<ApiError>) => {
       const serverMessage = error?.response?.data?.message;
       const description =
         typeof serverMessage === 'string'
@@ -60,7 +65,7 @@ export function useAuth() {
       });
       router.push('/login');
     },
-    onError: (error: any) => {
+    onError: (error: AxiosError<ApiError>) => {
       console.error('[useAuth register onError] Axios error object:', error);
       console.error('[useAuth register onError] Response status:', error?.response?.status);
       console.error('[useAuth register onError] Response body:', error?.response?.data);
@@ -71,7 +76,7 @@ export function useAuth() {
 
       if (Array.isArray(serverDetails) && serverDetails.length > 0) {
         description = serverDetails
-          .map((d: any) => d.message || `${d.field} is invalid`)
+          .map((d: { field?: string; message?: string }) => d.message || `${d.field} is invalid`)
           .join(', ');
       } else if (Array.isArray(serverMessage)) {
         description = serverMessage.join(', ');

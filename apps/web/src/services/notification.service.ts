@@ -34,7 +34,7 @@ export const notificationService = {
   },
 
   async markAllAsRead(workspaceId?: string) {
-    const { data } = await apiClient.patch('/notifications/read-all', null, {
+    const { data } = await apiClient.patch('/notifications/read-all', {}, {
       params: { workspaceId },
     });
     return data;

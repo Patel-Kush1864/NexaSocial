@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════
 
 import apiClient from '@/lib/api-client';
+import axios from 'axios';
 import type {
   User,
   TokenResponse,
@@ -26,8 +27,12 @@ export const authService = {
       const { data } = await apiClient.post<User>('/auth/register', payload);
       console.log('[authService.register] Received success response from server:', data);
       return data;
-    } catch (error: any) {
-      console.error('[authService.register] Caught network/HTTP error:', error?.response?.status, error?.response?.data || error?.message);
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error)) {
+        console.error('[authService.register] Caught network/HTTP error:', error.response?.status, error.response?.data || error.message);
+      } else {
+        console.error('[authService.register] Caught error:', error);
+      }
       throw error;
     }
   },

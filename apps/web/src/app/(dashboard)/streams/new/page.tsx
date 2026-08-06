@@ -55,6 +55,7 @@ export default function NewStreamPage() {
           title: data.title,
           description: data.description,
           platformAccountIds: data.platformAccountIds,
+          connectedAccountIds: data.platformAccountIds,
         },
       });
       router.push(`/streams/${stream.id}`);

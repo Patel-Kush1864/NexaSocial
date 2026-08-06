@@ -8,6 +8,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { socialService } from '@/services/social.service';
 import { queryKeys } from '@/lib/query-client';
 import { toast } from 'sonner';
+import type { AxiosError } from 'axios';
+import type { ApiError } from '@/types';
 
 export function useSocialAccounts(workspaceId?: string) {
   const queryClient = useQueryClient();
@@ -27,8 +29,9 @@ export function useSocialAccounts(workspaceId?: string) {
     mutationFn: ({ platform, workspaceId }: { platform: string; workspaceId: string }) =>
       socialService.connect(platform, workspaceId),
     onSuccess: (res) => {
-      if (res.authUrl) {
-        window.location.href = res.authUrl;
+      const url = res.authUrl || (res as { url?: string })?.url;
+      if (url) {
+        window.location.href = url;
       }
     },
     onError: () => {
@@ -45,8 +48,10 @@ export function useSocialAccounts(workspaceId?: string) {
       });
       toast.success('Account synced successfully');
     },
-    onError: () => {
-      toast.error('Failed to sync social account');
+    onError: (err: AxiosError<ApiError>) => {
+      const serverMsg = err?.response?.data?.message;
+      const displayMsg = Array.isArray(serverMsg) ? serverMsg.join(', ') : serverMsg;
+      toast.error(displayMsg || 'Failed to sync social account');
     },
   });
 

@@ -12,25 +12,44 @@ export class YoutubeService implements PlatformHandler {
   private readonly clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
   private readonly redirectUri =
     process.env.YOUTUBE_REDIRECT_URI ||
-    'http://localhost:3000/api/social/callback/youtube';
+    process.env.GOOGLE_CALLBACK_URL ||
+    'http://localhost:5000/api/auth/google/callback';
+
+  private isSimulationMode(): boolean {
+    return (
+      !this.clientId ||
+      this.clientId.startsWith('dummy-') ||
+      !this.clientSecret ||
+      this.clientSecret.startsWith('dummy-')
+    );
+  }
 
   getAuthUrl(state: string): string {
-    if (!this.clientId) {
+    if (this.isSimulationMode()) {
       // Simulation Mode
-      return `http://localhost:3000/api/social/callback/youtube?code=mock_youtube_code&state=${state}`;
+      return `http://localhost:5000/api/social/callback/youtube?code=mock_youtube_code&state=${state}`;
     }
+    const scopes = [
+      'https://www.googleapis.com/auth/youtube.readonly',
+      'https://www.googleapis.com/auth/youtube.force-ssl',
+      'https://www.googleapis.com/auth/youtube',
+    ].join(' ');
+
     return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${this.clientId}&redirect_uri=${encodeURIComponent(
       this.redirectUri,
-    )}&response_type=code&scope=https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.force-ssl&state=${state}&access_type=offline&prompt=consent`;
+    )}&response_type=code&scope=${encodeURIComponent(
+      scopes,
+    )}&state=${state}&access_type=offline&prompt=consent`;
   }
 
   async exchangeCode(code: string): Promise<PlatformOAuthResult> {
-    if (!this.clientId || code.startsWith('mock_')) {
+    if (this.isSimulationMode() || code.startsWith('mock_')) {
       return {
         accessToken: `mock_youtube_access_token_${Math.random().toString(36).substring(7)}`,
         refreshToken: `mock_youtube_refresh_token_${Math.random().toString(36).substring(7)}`,
         expiresIn: 3600,
-        scope: 'youtube.readonly',
+        scope:
+          'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.force-ssl https://www.googleapis.com/auth/youtube',
         tokenType: 'Bearer',
       };
     }
@@ -42,7 +61,7 @@ export class YoutubeService implements PlatformHandler {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           code,
-          client_id: this.clientId,
+          client_id: this.clientId || '',
           client_secret: this.clientSecret || '',
           redirect_uri: this.redirectUri,
           grant_type: 'authorization_code',
@@ -63,13 +82,14 @@ export class YoutubeService implements PlatformHandler {
         scope: data.scope,
         tokenType: data.token_type,
       };
-    } catch (err: any) {
-      throw new Error(`Google OAuth exchange failed: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Google OAuth exchange failed: ${msg}`);
     }
   }
 
   async refreshTokens(refreshToken: string): Promise<PlatformOAuthResult> {
-    if (refreshToken.startsWith('mock_')) {
+    if (this.isSimulationMode() || refreshToken.startsWith('mock_')) {
       return {
         accessToken: `mock_youtube_access_token_refreshed_${Math.random().toString(36).substring(7)}`,
         refreshToken,
@@ -99,13 +119,14 @@ export class YoutubeService implements PlatformHandler {
         refreshToken: data.refresh_token || refreshToken,
         expiresIn: data.expires_in,
       };
-    } catch (err: any) {
-      throw new Error(`Google OAuth refresh failed: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Google OAuth refresh failed: ${msg}`);
     }
   }
 
   async fetchProfile(accessToken: string): Promise<PlatformProfile> {
-    if (accessToken.startsWith('mock_')) {
+    if (this.isSimulationMode() || accessToken.startsWith('mock_')) {
       return {
         platformUserId: 'yt_channel_mock_123',
         name: 'NexaSocial YouTube Channel',
@@ -114,6 +135,11 @@ export class YoutubeService implements PlatformHandler {
         metadata: {
           subscribers: 28400,
           views: 120500,
+          videoCount: 42,
+          customUrl: '@nexasocial_live',
+          description: 'Official NexaSocial YouTube Channel for Live Streaming',
+          liveStreamingEnabled: true,
+          isLiveStreamingEligible: true,
           streamKey: 'live_mock_youtube_stream_key_abc123',
         },
       };
@@ -121,7 +147,7 @@ export class YoutubeService implements PlatformHandler {
 
     try {
       const response = await fetch(
-        'https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true',
+        'https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,status,contentDetails&mine=true',
         {
           headers: { Authorization: `Bearer ${accessToken}` },
         },
@@ -136,18 +162,31 @@ export class YoutubeService implements PlatformHandler {
       if (!item) {
         throw new Error('No YouTube channel found for this access token');
       }
+      const snippet = item.snippet || {};
+      const statistics = item.statistics || {};
+      const status = item.status || {};
+
       return {
         platformUserId: item.id,
-        name: item.snippet.title,
-        avatar: item.snippet.thumbnails?.default?.url,
+        name: snippet.title || 'YouTube Channel',
+        avatar:
+          snippet.thumbnails?.high?.url ||
+          snippet.thumbnails?.medium?.url ||
+          snippet.thumbnails?.default?.url,
         metadata: {
-          subscribers: parseInt(item.statistics.subscriberCount || '0', 10),
-          views: parseInt(item.statistics.viewCount || '0', 10),
-          videoCount: parseInt(item.statistics.videoCount || '0', 10),
+          subscribers: parseInt(statistics.subscriberCount || '0', 10),
+          views: parseInt(statistics.viewCount || '0', 10),
+          videoCount: parseInt(statistics.videoCount || '0', 10),
+          customUrl: snippet.customUrl || '',
+          description: snippet.description || '',
+          liveStreamingEnabled: status.isLinked ?? true,
+          isLiveStreamingEligible:
+            status.longUploadsStatus === 'allowed' || true,
         },
       };
-    } catch (err: any) {
-      throw new Error(`YouTube profile fetch failed: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`YouTube profile fetch failed: ${msg}`);
     }
   }
 }

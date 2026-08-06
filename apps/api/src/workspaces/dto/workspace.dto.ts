@@ -14,6 +14,10 @@ export class CreateWorkspaceDto {
 
   @IsString()
   @IsOptional()
+  slug?: string;
+
+  @IsString()
+  @IsOptional()
   @MaxLength(500)
   description?: string;
 

@@ -28,14 +28,37 @@ export class AuthService {
   ) {}
 
   async validateUser(email: string, password: string): Promise<User | null> {
-    const user = await this.usersService.findByEmail(email);
-    if (user && user.password) {
-      const isMatch = await bcrypt.compare(password, user.password);
-      if (isMatch) {
-        return user;
-      }
+    const normalizedEmail = email ? email.trim().toLowerCase() : '';
+    const user = await this.usersService.findByEmail(normalizedEmail);
+    if (!user) {
+      this.logger.warn(
+        `Login failed: No account registered with email "${normalizedEmail}"`,
+        'AuthService',
+        'security',
+      );
+      return null;
     }
-    return null;
+
+    if (!user.password) {
+      this.logger.warn(
+        `Login failed: Account "${normalizedEmail}" is an OAuth/Social account with no password`,
+        'AuthService',
+        'security',
+      );
+      return null;
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      this.logger.warn(
+        `Login failed: Password mismatch for email "${normalizedEmail}"`,
+        'AuthService',
+        'security',
+      );
+      return null;
+    }
+
+    return user;
   }
 
   async register(registerDto: RegisterDto): Promise<User> {

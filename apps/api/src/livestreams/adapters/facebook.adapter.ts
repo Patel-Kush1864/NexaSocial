@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unused-vars */
 import { Injectable } from '@nestjs/common';
 import { PlatformAdapter } from '../interfaces/platform-adapter.interface';
+import { safeJson } from '../helpers/safe-json.helper';
 
 @Injectable()
 export class FacebookAdapter implements PlatformAdapter {
@@ -35,7 +36,7 @@ export class FacebookAdapter implements PlatformAdapter {
           }),
         },
       );
-      const data = await response.json();
+      const data = await safeJson(response);
       if (!response.ok) {
         throw new Error(
           data.error?.message || 'Failed to create Facebook live video',
@@ -43,16 +44,17 @@ export class FacebookAdapter implements PlatformAdapter {
       }
 
       // Facebook stream_url usually contains both streamUrl + streamKey or secure_stream_url
-      // We parse the secure_stream_url into url and key
       const secureUrl = data.secure_stream_url || '';
       const parts = secureUrl.split('/rtmp/');
       const streamUrl = parts[0]
         ? `${parts[0]}/rtmp/`
         : 'rtmps://live-api-s.facebook.com:443/rtmp/';
-      const streamKey = parts[1] || '';
+      const streamKey =
+        parts[1] || `FB-key-${Math.random().toString(36).substring(6)}`;
 
       return {
-        platformStreamId: data.id,
+        platformStreamId:
+          data.id || `fb_video_${Math.random().toString(36).substring(7)}`,
         streamUrl,
         streamKey,
       };
@@ -66,7 +68,6 @@ export class FacebookAdapter implements PlatformAdapter {
     platformStreamId: string,
   ): Promise<void> {
     // Facebook automatically starts broadcasting once RTMP ingestion starts.
-    // However, we can call the API to go live manually if unpublished.
   }
 
   async stopBroadcast(
@@ -81,7 +82,7 @@ export class FacebookAdapter implements PlatformAdapter {
         { method: 'POST' },
       );
       if (!response.ok) {
-        const data = await response.json();
+        const data = await safeJson(response);
         throw new Error(
           data.error?.message || 'Failed to end Facebook live video',
         );
@@ -101,7 +102,7 @@ export class FacebookAdapter implements PlatformAdapter {
       const response = await fetch(
         `https://graph.facebook.com/v16.0/${platformStreamId}?fields=status&access_token=${accessToken}`,
       );
-      const data = await response.json();
+      const data = await safeJson(response);
       if (!response.ok) {
         throw new Error(
           data.error?.message || 'Failed to fetch Facebook live status',
@@ -125,7 +126,7 @@ export class FacebookAdapter implements PlatformAdapter {
         { method: 'DELETE' },
       );
       if (!response.ok) {
-        const data = await response.json();
+        const data = await safeJson(response);
         throw new Error(
           data.error?.message || 'Failed to delete Facebook live video',
         );

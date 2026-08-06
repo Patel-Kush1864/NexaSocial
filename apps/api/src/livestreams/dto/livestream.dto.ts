@@ -13,7 +13,7 @@ import { IsThumbnailFormat } from '../validators/is-thumbnail-format.validator';
 
 export class CreateStreamDto {
   @IsString()
-  @Length(5, 150)
+  @Length(3, 150)
   title: string;
 
   @IsString()
@@ -35,14 +35,20 @@ export class CreateStreamDto {
   scheduledAt?: string;
 
   @IsArray()
+  @IsOptional()
   @IsUUID(undefined, { each: true })
-  connectedAccountIds: string[];
+  connectedAccountIds?: string[];
+
+  @IsArray()
+  @IsOptional()
+  @IsUUID(undefined, { each: true })
+  platformAccountIds?: string[];
 }
 
 export class UpdateStreamDto {
   @IsString()
   @IsOptional()
-  @Length(5, 150)
+  @Length(3, 150)
   title?: string;
 
   @IsString()
@@ -67,6 +73,11 @@ export class UpdateStreamDto {
   @IsOptional()
   @IsUUID(undefined, { each: true })
   connectedAccountIds?: string[];
+
+  @IsArray()
+  @IsOptional()
+  @IsUUID(undefined, { each: true })
+  platformAccountIds?: string[];
 }
 
 export class ScheduleStreamDto {

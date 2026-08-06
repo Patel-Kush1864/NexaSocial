@@ -30,7 +30,12 @@ export function useStreams(workspaceId?: string) {
       payload,
     }: {
       workspaceId: string;
-      payload: { title: string; description?: string; platformAccountIds?: string[] };
+      payload: {
+        title: string;
+        description?: string;
+        platformAccountIds?: string[];
+        connectedAccountIds?: string[];
+      };
     }) => livestreamService.create(workspaceId, payload),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
@@ -38,8 +43,13 @@ export function useStreams(workspaceId?: string) {
       });
       toast.success('Live stream created successfully');
     },
-    onError: () => {
-      toast.error('Failed to create stream');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onError: (error: any) => {
+      const responseMsg = error?.response?.data?.message;
+      const errorText = Array.isArray(responseMsg)
+        ? responseMsg.join(', ')
+        : responseMsg || 'Failed to create stream';
+      toast.error(errorText);
     },
   });
 
@@ -55,8 +65,13 @@ export function useStreams(workspaceId?: string) {
       });
       toast.success('Stream started! Broadcasting to connected channels.');
     },
-    onError: () => {
-      toast.error('Failed to start stream');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onError: (error: any) => {
+      const responseMsg = error?.response?.data?.message;
+      const errorText = Array.isArray(responseMsg)
+        ? responseMsg.join(', ')
+        : responseMsg || 'Failed to start stream';
+      toast.error(errorText);
     },
   });
 
@@ -72,8 +87,13 @@ export function useStreams(workspaceId?: string) {
       });
       toast.success('Stream ended');
     },
-    onError: () => {
-      toast.error('Failed to stop stream');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onError: (error: any) => {
+      const responseMsg = error?.response?.data?.message;
+      const errorText = Array.isArray(responseMsg)
+        ? responseMsg.join(', ')
+        : responseMsg || 'Failed to stop stream';
+      toast.error(errorText);
     },
   });
 
@@ -86,8 +106,13 @@ export function useStreams(workspaceId?: string) {
       });
       toast.success('Stream deleted');
     },
-    onError: () => {
-      toast.error('Failed to delete stream');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onError: (error: any) => {
+      const responseMsg = error?.response?.data?.message;
+      const errorText = Array.isArray(responseMsg)
+        ? responseMsg.join(', ')
+        : responseMsg || 'Failed to delete stream';
+      toast.error(errorText);
     },
   });
 

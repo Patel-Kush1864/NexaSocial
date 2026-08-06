@@ -21,7 +21,8 @@ export class UsersService {
   ) {}
 
   async findByEmail(email: string): Promise<User | null> {
-    return this.usersRepository.findByEmail(email);
+    const normalizedEmail = email ? email.trim().toLowerCase() : '';
+    return this.usersRepository.findByEmail(normalizedEmail);
   }
 
   async findById(id: string): Promise<User | null> {
