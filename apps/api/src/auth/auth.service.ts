@@ -131,7 +131,7 @@ export class AuthService {
       },
     );
 
-    const refreshTokenHash = await bcrypt.hash(refreshToken, 12);
+    const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
 
     const browser = clientInfo.userAgent || 'unknown';
     const device = clientInfo.userAgent

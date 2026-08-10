@@ -5,6 +5,7 @@ allowBuilds:
   '@scarf/scarf': true
   bcrypt: true
   cpu-features: true
+  ffmpeg-static: true
   msgpackr-extract: true
   protobufjs: true
   sharp: true

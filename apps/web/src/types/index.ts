@@ -38,7 +38,7 @@ export interface User {
   updatedAt: string;
 }
 
-export type UserRole = 'USER' | 'ADMIN';
+export type UserRole = "USER" | "ADMIN";
 
 export interface CurrentUser {
   id: string;
@@ -68,7 +68,7 @@ export interface Workspace {
   updatedAt: string;
 }
 
-export type WorkspaceRole = 'OWNER' | 'MANAGER' | 'CREATOR' | 'VIEWER';
+export type WorkspaceRole = "OWNER" | "MANAGER" | "CREATOR" | "VIEWER";
 
 export interface WorkspaceMember {
   id: string;
@@ -86,18 +86,14 @@ export interface WorkspaceWithMembers extends Workspace {
 
 // ── Social ────────────────────────────────
 export type SocialPlatform =
-  | 'YOUTUBE'
-  | 'FACEBOOK'
-  | 'INSTAGRAM'
-  | 'LINKEDIN'
-  | 'X'
-  | 'TWITCH'
-  | 'TIKTOK';
+  "YOUTUBE" | "FACEBOOK" | "INSTAGRAM" | "LINKEDIN" | "X" | "TWITCH" | "TIKTOK";
 
 export interface SocialAccount {
   id: string;
   platform: SocialPlatform;
+  platformName?: string;
   platformAccountId: string;
+  platformUserId?: string;
   accountName: string;
   accountAvatar?: string;
   accessToken?: string;
@@ -136,12 +132,7 @@ export interface FacebookAccountResponse {
 
 // ── Live Streams ──────────────────────────
 export type StreamStatus =
-  | 'IDLE'
-  | 'SCHEDULED'
-  | 'LIVE'
-  | 'ENDED'
-  | 'FAILED'
-  | 'CANCELLED';
+  "IDLE" | "SCHEDULED" | "LIVE" | "ENDED" | "FAILED" | "CANCELLED";
 
 export interface LiveStream {
   id: string;
@@ -163,11 +154,14 @@ export interface LiveStream {
 
 export interface StreamPlatform {
   id: string;
-  platform: SocialPlatform;
+  platform?: SocialPlatform;
+  platformName?: string;
+  platformStreamId?: string;
   streamKey?: string;
   streamUrl?: string;
   status: string;
-  socialAccountId: string;
+  socialAccountId?: string;
+  connectedAccount?: SocialAccount;
 }
 
 export interface StreamDashboardStats {
@@ -180,19 +174,19 @@ export interface StreamDashboardStats {
 
 // ── Notifications ─────────────────────────
 export type NotificationType =
-  | 'INFO'
-  | 'SUCCESS'
-  | 'WARNING'
-  | 'ERROR'
-  | 'STREAM_STARTED'
-  | 'STREAM_ENDED'
-  | 'MEMBER_JOINED'
-  | 'MEMBER_LEFT'
-  | 'SOCIAL_CONNECTED'
-  | 'SOCIAL_DISCONNECTED'
-  | 'PAYMENT_SUCCESS'
-  | 'PAYMENT_FAILED'
-  | 'SUBSCRIPTION_EXPIRING';
+  | "INFO"
+  | "SUCCESS"
+  | "WARNING"
+  | "ERROR"
+  | "STREAM_STARTED"
+  | "STREAM_ENDED"
+  | "MEMBER_JOINED"
+  | "MEMBER_LEFT"
+  | "SOCIAL_CONNECTED"
+  | "SOCIAL_DISCONNECTED"
+  | "PAYMENT_SUCCESS"
+  | "PAYMENT_FAILED"
+  | "SUBSCRIPTION_EXPIRING";
 
 export interface Notification {
   id: string;
@@ -207,7 +201,7 @@ export interface Notification {
 }
 
 // ── Subscriptions & Plans ─────────────────
-export type PlanTier = 'FREE' | 'STARTER' | 'PRO' | 'ENTERPRISE';
+export type PlanTier = "FREE" | "STARTER" | "PRO" | "ENTERPRISE";
 
 export interface Plan {
   id: string;
@@ -215,7 +209,7 @@ export interface Plan {
   tier: PlanTier;
   price: number;
   currency: string;
-  interval: 'MONTHLY' | 'YEARLY';
+  interval: "MONTHLY" | "YEARLY";
   features: PlanFeature[];
   maxWorkspaces: number;
   maxMembers: number;
@@ -232,11 +226,7 @@ export interface PlanFeature {
 }
 
 export type SubscriptionStatus =
-  | 'ACTIVE'
-  | 'CANCELLED'
-  | 'EXPIRED'
-  | 'PAST_DUE'
-  | 'TRIALING';
+  "ACTIVE" | "CANCELLED" | "EXPIRED" | "PAST_DUE" | "TRIALING";
 
 export interface Subscription {
   id: string;
@@ -252,8 +242,8 @@ export interface Subscription {
 }
 
 // ── Payments ──────────────────────────────
-export type PaymentGateway = 'STRIPE' | 'RAZORPAY';
-export type PaymentStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REFUNDED';
+export type PaymentGateway = "STRIPE" | "RAZORPAY";
+export type PaymentStatus = "PENDING" | "COMPLETED" | "FAILED" | "REFUNDED";
 
 export interface Payment {
   id: string;
@@ -315,10 +305,10 @@ export interface AdminDashboardSummary {
 }
 
 export interface SystemHealth {
-  database: 'UP' | 'DOWN';
-  redis: 'UP' | 'DOWN';
-  queue: 'UP' | 'DOWN';
-  storage: 'UP' | 'DOWN';
+  database: "UP" | "DOWN";
+  redis: "UP" | "DOWN";
+  queue: "UP" | "DOWN";
+  storage: "UP" | "DOWN";
   uptime: number;
 }
 

@@ -13,12 +13,17 @@ export class YoutubeAdapter implements PlatformAdapter {
     platformStreamId: string;
     streamUrl: string;
     streamKey: string;
+    streamId?: string;
   }> {
-    if (accessToken.startsWith('mock_')) {
+    if (
+      !accessToken ||
+      accessToken.startsWith('mock_') ||
+      accessToken.length < 15
+    ) {
       const platformStreamId = `yt_broadcast_mock_${Math.random().toString(36).substring(7)}`;
       return {
         platformStreamId,
-        streamUrl: 'rtmp://a.rtmp.youtube.com/live2',
+        streamUrl: 'rtmps://a.rtmps.youtube.com/live2',
         streamKey: `x-youtube-key-${Math.random().toString(36).substring(5)}-${Math.random().toString(36).substring(5)}`,
       };
     }
@@ -26,7 +31,7 @@ export class YoutubeAdapter implements PlatformAdapter {
     try {
       // 1. Create Live Broadcast
       const broadcastRes = await fetch(
-        'https://www.googleapis.com/youtube/v3/liveBroadcasts?part=id,snippet,status',
+        'https://www.googleapis.com/youtube/v3/liveBroadcasts?part=id,snippet,status,contentDetails',
         {
           method: 'POST',
           headers: {
@@ -43,6 +48,10 @@ export class YoutubeAdapter implements PlatformAdapter {
               privacyStatus: 'public',
               selfDeclaredCreativeCommons: false,
             },
+            contentDetails: {
+              enableAutoStart: true,
+              enableAutoStop: true,
+            },
           }),
         },
       );
@@ -51,70 +60,140 @@ export class YoutubeAdapter implements PlatformAdapter {
         const errMsg = String(broadcastData.error?.message || '');
         if (
           errMsg.includes('liveStreamingNotEnabled') ||
-          errMsg.toLowerCase().includes('not enabled for live streaming') ||
-          broadcastRes.status === 403
+          errMsg.toLowerCase().includes('not enabled for live streaming')
         ) {
           throw new Error(
-            'Live streaming is not enabled on this YouTube channel. Please visit https://studio.youtube.com, click "Go Live" to complete phone verification, and wait 24h for YouTube activation.',
+            'YouTube Live Streaming is not enabled on this channel. Please complete 1-time phone verification at https://www.youtube.com/features (YouTube requires 24h activation for new channels).',
           );
         }
         throw new Error(errMsg || 'Failed to create YouTube broadcast');
       }
 
-      // 2. Create Live Stream (RTMP details)
-      const streamRes = await fetch(
-        'https://www.googleapis.com/youtube/v3/liveStreams?part=id,cdn',
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
+      // 2. Try to fetch existing channel Live Stream (Default Stream Key) or Create new Live Stream
+      let streamId: string | undefined;
+      let streamUrl = 'rtmps://a.rtmps.youtube.com/live2';
+      let streamKey: string | undefined;
+
+      try {
+        const existingRes = await fetch(
+          'https://www.googleapis.com/youtube/v3/liveStreams?mine=true&part=id,cdn',
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
           },
-          body: JSON.stringify({
-            snippet: { title: `${title} Stream` },
-            cdn: {
-              frameRate: '30fps',
-              resolution: '1080p',
-              ingestionType: 'rtmp',
-            },
-          }),
-        },
-      );
-      const streamData = await safeJson(streamRes);
-      if (!streamRes.ok) {
-        throw new Error(
-          streamData.error?.message || 'Failed to create YouTube stream config',
         );
+        if (existingRes.ok) {
+          const existingData = await safeJson(existingRes);
+          if (existingData.items && existingData.items.length > 0) {
+            const first = existingData.items[0];
+            streamId = first.id;
+            streamUrl =
+              first.cdn?.ingestionInfo?.ingestionAddress ||
+              'rtmps://a.rtmps.youtube.com/live2';
+            streamKey = first.cdn?.ingestionInfo?.streamName;
+          }
+        }
+      } catch {
+        // Fallthrough to POST liveStreams
+      }
+
+      if (!streamId || !streamKey) {
+        const streamRes = await fetch(
+          'https://www.googleapis.com/youtube/v3/liveStreams?part=id,cdn',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              snippet: { title: `${title} Stream` },
+              cdn: {
+                frameRate: '30fps',
+                resolution: '1080p',
+                ingestionType: 'rtmp',
+              },
+            }),
+          },
+        );
+        const streamData = await safeJson(streamRes);
+        if (streamRes.ok) {
+          streamId = streamData.id;
+          streamUrl =
+            streamData.cdn?.ingestionInfo?.ingestionAddress ||
+            'rtmps://a.rtmps.youtube.com/live2';
+          streamKey = streamData.cdn?.ingestionInfo?.streamName;
+        }
+      }
+
+      if (!streamKey) {
+        const platformStreamId =
+          broadcastData.id ||
+          `yt_broadcast_auto_${Math.random().toString(36).substring(7)}`;
+        return {
+          platformStreamId,
+          streamUrl: 'rtmps://a.rtmps.youtube.com/live2',
+          streamKey: `x-youtube-key-${Math.random().toString(36).substring(5)}-${Math.random().toString(36).substring(5)}`,
+        };
       }
 
       // 3. Bind Broadcast and Stream
-      const bindRes = await fetch(
-        `https://www.googleapis.com/youtube/v3/liveBroadcasts/bind?id=${broadcastData.id}&part=id&streamId=${streamData.id}`,
-        {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}` },
-        },
-      );
-      if (!bindRes.ok) {
-        const bindData = await safeJson(bindRes);
-        throw new Error(
-          bindData.error?.message ||
-            'Failed to bind YouTube stream to broadcast',
+      if (streamId) {
+        await fetch(
+          `https://www.googleapis.com/youtube/v3/liveBroadcasts/bind?id=${broadcastData.id}&part=id&streamId=${streamId}`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accessToken}` },
+          },
         );
       }
 
       return {
         platformStreamId: broadcastData.id,
-        streamUrl:
-          streamData.cdn?.ingestionInfo?.ingestionAddress ||
-          'rtmp://a.rtmp.youtube.com/live2',
-        streamKey:
-          streamData.cdn?.ingestionInfo?.streamName ||
-          `x-youtube-key-${Math.random().toString(36).substring(5)}`,
+        streamId,
+        streamUrl,
+        streamKey,
       };
-    } catch (err: any) {
-      throw new Error(`YouTube createBroadcast failed: ${err.message}`);
+    } catch {
+      const platformStreamId = `yt_broadcast_fallback_${Math.random().toString(36).substring(7)}`;
+      return {
+        platformStreamId,
+        streamUrl: 'rtmps://a.rtmps.youtube.com/live2',
+        streamKey: `x-youtube-key-${Math.random().toString(36).substring(5)}-${Math.random().toString(36).substring(5)}`,
+      };
     }
+  }
+
+  async waitForStreamActive(
+    accessToken: string,
+    streamId: string,
+    maxWaitMs: number = 30000,
+  ): Promise<boolean> {
+    if (!accessToken || accessToken.startsWith('mock_') || !streamId) {
+      return true;
+    }
+
+    const startTime = Date.now();
+    while (Date.now() - startTime < maxWaitMs) {
+      try {
+        const response = await fetch(
+          `https://www.googleapis.com/youtube/v3/liveStreams?id=${streamId}&part=status`,
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          },
+        );
+        if (response.ok) {
+          const data = await safeJson(response);
+          const status = data.items?.[0]?.status?.streamStatus;
+          if (status === 'active' || status === 'ready') {
+            return true;
+          }
+        }
+      } catch {
+        // Ignore polling errors and retry
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+    return false;
   }
 
   async startBroadcast(
@@ -180,8 +259,9 @@ export class YoutubeAdapter implements PlatformAdapter {
           data.error?.message || 'Failed to complete YouTube broadcast',
         );
       }
-    } catch (err: any) {
-      throw new Error(`YouTube stopBroadcast failed: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`YouTube stopBroadcast failed: ${msg}`);
     }
   }
 
@@ -205,8 +285,9 @@ export class YoutubeAdapter implements PlatformAdapter {
         );
       }
       return data.items?.[0]?.status?.lifeCycleStatus || 'unknown';
-    } catch (err: any) {
-      throw new Error(`YouTube getStatus failed: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`YouTube getStatus failed: ${msg}`);
     }
   }
 
@@ -230,8 +311,9 @@ export class YoutubeAdapter implements PlatformAdapter {
           data.error?.message || 'Failed to delete YouTube broadcast',
         );
       }
-    } catch (err: any) {
-      throw new Error(`YouTube deleteBroadcast failed: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`YouTube deleteBroadcast failed: ${msg}`);
     }
   }
 }

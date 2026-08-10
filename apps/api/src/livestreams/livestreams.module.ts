@@ -15,6 +15,9 @@ import { LiveStreamSchedulerService } from './scheduler/livestream-scheduler.ser
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { LoggerModule } from '../logger/logger.module';
 
+import { FFmpegService } from './services/ffmpeg.service';
+import { MediaServerService } from './services/media-server.service';
+
 // Adapters
 import { YoutubeAdapter } from './adapters/youtube.adapter';
 import { FacebookAdapter } from './adapters/facebook.adapter';
@@ -41,6 +44,8 @@ import { LinkedinAdapter } from './adapters/linkedin.adapter';
     LiveStreamGateway,
     LiveStreamEventsListener,
     LiveStreamSchedulerService,
+    FFmpegService,
+    MediaServerService,
     YoutubeAdapter,
     FacebookAdapter,
     TwitchAdapter,
@@ -51,6 +56,8 @@ import { LinkedinAdapter } from './adapters/linkedin.adapter';
     LiveStreamsRepository,
     LiveStreamGateway,
     LiveStreamSchedulerService,
+    FFmpegService,
+    MediaServerService,
     YoutubeAdapter,
     FacebookAdapter,
     TwitchAdapter,

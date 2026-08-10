@@ -7,6 +7,7 @@ export interface PlatformAdapter {
     platformStreamId: string;
     streamUrl: string;
     streamKey: string;
+    streamId?: string;
   }>;
 
   startBroadcast(accessToken: string, platformStreamId: string): Promise<void>;
@@ -16,4 +17,10 @@ export interface PlatformAdapter {
   getStatus(accessToken: string, platformStreamId: string): Promise<string>;
 
   deleteBroadcast(accessToken: string, platformStreamId: string): Promise<void>;
+
+  waitForStreamActive?(
+    accessToken: string,
+    streamId: string,
+    maxWaitMs?: number,
+  ): Promise<boolean>;
 }

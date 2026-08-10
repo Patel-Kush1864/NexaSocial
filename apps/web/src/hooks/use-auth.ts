@@ -40,10 +40,22 @@ export function useAuth() {
     },
     onError: (error: AxiosError<ApiError>) => {
       const serverMessage = error?.response?.data?.message;
-      const description =
-        typeof serverMessage === 'string'
-          ? serverMessage
-          : 'Invalid email or password. Please try again.';
+      let description = 'Invalid email or password. Please try again.';
+
+      if (typeof serverMessage === 'string') {
+        description = serverMessage;
+      } else if (Array.isArray(serverMessage)) {
+        description = serverMessage.join(', ');
+      } else if (
+        error?.code === 'ERR_NETWORK' ||
+        error?.code === 'ECONNREFUSED' ||
+        !error?.response ||
+        error?.response?.status >= 500
+      ) {
+        description =
+          'Unable to connect to the backend server. The server may be starting up or offline. Please try again in a moment.';
+      }
+
       toast.error('Login failed', { description });
     },
   });

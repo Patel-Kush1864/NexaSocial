@@ -17,6 +17,8 @@ import { YoutubeAdapter } from '../../../src/livestreams/adapters/youtube.adapte
 import { FacebookAdapter } from '../../../src/livestreams/adapters/facebook.adapter';
 import { TwitchAdapter } from '../../../src/livestreams/adapters/twitch.adapter';
 import { LinkedinAdapter } from '../../../src/livestreams/adapters/linkedin.adapter';
+import { FFmpegService } from '../../../src/livestreams/services/ffmpeg.service';
+import { MediaServerService } from '../../../src/livestreams/services/media-server.service';
 import { createMockRepository } from '../../mocks/repository.mock';
 import { createMockStream } from '../../fixtures/livestream.fixture';
 import { NotFoundException } from '@nestjs/common';
@@ -53,12 +55,40 @@ describe('LiveStreamsService (Unit)', () => {
           provide: UsageLimitService,
           useValue: { canScheduleStream: jest.fn().mockResolvedValue(true) },
         },
-        { provide: LoggerServiceWrapper, useValue: { log: jest.fn() } },
+        {
+          provide: LoggerServiceWrapper,
+          useValue: {
+            log: jest.fn(),
+            info: jest.fn(),
+            warn: jest.fn(),
+            debug: jest.fn(),
+          },
+        },
         {
           provide: LiveStreamGateway,
           useValue: {
             notifyStreamStarted: jest.fn(),
             notifyStreamStopped: jest.fn(),
+            emitStreamStarted: jest.fn(),
+          },
+        },
+        {
+          provide: FFmpegService,
+          useValue: {
+            startForwarding: jest.fn().mockReturnValue(true),
+            stopForwarding: jest.fn(),
+            isForwarding: jest.fn().mockReturnValue(false),
+          },
+        },
+        {
+          provide: MediaServerService,
+          useValue: {
+            createStreamSession: jest.fn().mockReturnValue({
+              streamId: 'mock',
+              whipEndpoint: 'http://localhost/whip',
+              rtmpSourceUrl: 'rtmp://localhost/live/mock',
+            }),
+            closeSession: jest.fn(),
           },
         },
         { provide: YoutubeAdapter, useValue: { createBroadcast: jest.fn() } },

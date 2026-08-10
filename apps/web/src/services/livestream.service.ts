@@ -33,7 +33,7 @@ export const livestreamService = {
   async update(
     id: string,
     workspaceId: string,
-    payload: { title?: string; description?: string },
+    payload: { title?: string; description?: string; youtubeStreamKey?: string },
   ): Promise<LiveStream> {
     const { data } = await apiClient.put<LiveStream>(
       `/livestreams/${id}`,
@@ -68,7 +68,7 @@ export const livestreamService = {
     const { data } = await apiClient.post<LiveStream>(
       `/livestreams/${id}/start`,
       {},
-      { params: { workspaceId } },
+      { params: { workspaceId }, timeout: 60000 },
     );
     return data;
   },
@@ -77,7 +77,7 @@ export const livestreamService = {
     const { data } = await apiClient.post<LiveStream>(
       `/livestreams/${id}/stop`,
       {},
-      { params: { workspaceId } },
+      { params: { workspaceId }, timeout: 60000 },
     );
     return data;
   },

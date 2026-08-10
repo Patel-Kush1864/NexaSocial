@@ -5,6 +5,7 @@ import { ConnectedAccount } from '../../../src/social/entities/connected-account
 import { OAuthToken } from '../../../src/social/entities/oauth-token.entity';
 import { Platform } from '../../../src/database/entities/platform.entity';
 import { ActivityLog } from '../../../src/users/entities/activity-log.entity';
+import { WorkspaceMember } from '../../../src/workspace-members/entities/workspace-member.entity';
 import { UsageLimitService } from '../../../src/subscriptions/services/usage-limit.service';
 import { LoggerServiceWrapper } from '../../../src/logger/logger.service';
 import { YoutubeService } from '../../../src/social/platforms/youtube/youtube.service';
@@ -41,6 +42,10 @@ describe('SocialService (Unit & OAuth Platform Testing)', () => {
         },
         {
           provide: getRepositoryToken(ActivityLog),
+          useValue: createMockRepository(),
+        },
+        {
+          provide: getRepositoryToken(WorkspaceMember),
           useValue: createMockRepository(),
         },
         {

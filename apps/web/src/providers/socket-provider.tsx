@@ -21,11 +21,13 @@ import type { Notification } from '@/types';
 
 interface SocketContextValue {
   socket: Socket | null;
+  streamSocket: Socket | null;
   isConnected: boolean;
 }
 
 const SocketContext = createContext<SocketContextValue>({
   socket: null,
+  streamSocket: null,
   isConnected: false,
 });
 
@@ -39,6 +41,7 @@ interface SocketProviderProps {
 
 export function SocketProvider({ children }: SocketProviderProps) {
   const [socket, setSocket] = useState<Socket | null>(null);
+  const [streamSocket, setStreamSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const { isAuthenticated } = useAuthStore();
   const { currentWorkspace } = useWorkspaceStore();
@@ -52,8 +55,18 @@ export function SocketProvider({ children }: SocketProviderProps) {
     const token = getAccessToken();
     if (!token) return;
 
-    // Create socket connection
+    // Create main socket connection
     const socketInstance = io(APP_CONFIG.wsUrl, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+    });
+
+    // Create live stream dedicated socket connection (/streams namespace)
+    const streamUrl = `${APP_CONFIG.wsUrl.replace(/\/$/, '')}/streams`;
+    const streamSocketInstance = io(streamUrl, {
       auth: { token },
       transports: ['websocket', 'polling'],
       reconnection: true,
@@ -70,6 +83,13 @@ export function SocketProvider({ children }: SocketProviderProps) {
       }
     });
 
+    streamSocketInstance.on('connect', () => {
+      setStreamSocket(streamSocketInstance);
+      if (currentWorkspace) {
+        streamSocketInstance.emit('joinWorkspace', currentWorkspace.id);
+      }
+    });
+
     socketInstance.on('disconnect', () => {
       setIsConnected(false);
     });
@@ -81,22 +101,25 @@ export function SocketProvider({ children }: SocketProviderProps) {
 
     return () => {
       socketInstance.disconnect();
+      streamSocketInstance.disconnect();
       setSocket(null);
+      setStreamSocket(null);
       setIsConnected(false);
     };
   }, [isAuthenticated, addNotification]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle workspace switching
   useEffect(() => {
-    if (!socket || !isConnected) return;
+    if (!isConnected) return;
 
     if (currentWorkspace) {
-      socket.emit('join:workspace', currentWorkspace.id);
+      if (socket) socket.emit('join:workspace', currentWorkspace.id);
+      if (streamSocket) streamSocket.emit('joinWorkspace', currentWorkspace.id);
     }
-  }, [currentWorkspace, isConnected, socket]);
+  }, [currentWorkspace, isConnected, socket, streamSocket]);
 
   return (
-    <SocketContext.Provider value={{ socket, isConnected }}>
+    <SocketContext.Provider value={{ socket, streamSocket, isConnected }}>
       {children}
     </SocketContext.Provider>
   );

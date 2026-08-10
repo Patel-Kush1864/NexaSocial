@@ -43,6 +43,10 @@ export class CreateStreamDto {
   @IsOptional()
   @IsUUID(undefined, { each: true })
   platformAccountIds?: string[];
+
+  @IsString()
+  @IsOptional()
+  youtubeStreamKey?: string;
 }
 
 export class UpdateStreamDto {
@@ -78,6 +82,10 @@ export class UpdateStreamDto {
   @IsOptional()
   @IsUUID(undefined, { each: true })
   platformAccountIds?: string[];
+
+  @IsString()
+  @IsOptional()
+  youtubeStreamKey?: string;
 }
 
 export class ScheduleStreamDto {

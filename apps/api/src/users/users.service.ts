@@ -77,8 +77,12 @@ export class UsersService {
     console.log(
       `[UsersService.create]: Hashing password and creating user entity for email: "${createUserDto.email}"`,
     );
+    const normalizedEmail = createUserDto.email
+      ? createUserDto.email.trim().toLowerCase()
+      : '';
+
     const hashedPassword = createUserDto.password
-      ? await bcrypt.hash(createUserDto.password, 12)
+      ? await bcrypt.hash(createUserDto.password, 10)
       : undefined;
 
     const role = await this.findRoleByName(roleName);
@@ -86,6 +90,7 @@ export class UsersService {
 
     const user = this.usersRepository.rawRepository.create({
       ...createUserDto,
+      email: normalizedEmail,
       password: hashedPassword,
       roles,
     });

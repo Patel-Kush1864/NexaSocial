@@ -116,11 +116,41 @@ export function useStreams(workspaceId?: string) {
     },
   });
 
+  const updateMutation = useMutation({
+    mutationFn: ({
+      id,
+      workspaceId,
+      payload,
+    }: {
+      id: string;
+      workspaceId: string;
+      payload: { title?: string; description?: string; youtubeStreamKey?: string };
+    }) => livestreamService.update(id, workspaceId, payload),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.streams.detail(variables.id),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.streams.all(variables.workspaceId),
+      });
+      toast.success('Live stream details updated');
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onError: (error: any) => {
+      const responseMsg = error?.response?.data?.message;
+      const errorText = Array.isArray(responseMsg)
+        ? responseMsg.join(', ')
+        : responseMsg || 'Failed to update stream';
+      toast.error(errorText);
+    },
+  });
+
   return {
     streams: streamsQuery.data || [],
     dashboardStats: dashboardStatsQuery.data,
     isLoading: streamsQuery.isLoading,
     createStream: createMutation.mutateAsync,
+    updateStream: updateMutation.mutateAsync,
     startStream: startMutation.mutateAsync,
     stopStream: stopMutation.mutateAsync,
     deleteStream: deleteMutation.mutateAsync,
