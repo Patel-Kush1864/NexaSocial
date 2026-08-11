@@ -28,9 +28,7 @@ export class LiveStreamGateway
   server: Server;
 
   @SubscribeMessage('stream:binary_chunk')
-  handleBinaryChunk(
-    @MessageBody() data: { streamId: string; chunk: any },
-  ) {
+  handleBinaryChunk(@MessageBody() data: { streamId: string; chunk: any }) {
     if (data?.streamId && data?.chunk && this.ffmpegService) {
       let buf: Buffer;
       if (Buffer.isBuffer(data.chunk)) {

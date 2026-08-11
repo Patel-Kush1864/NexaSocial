@@ -131,7 +131,7 @@ export class FFmpegService implements OnModuleDestroy {
     try {
       let ffmpegBinary = 'ffmpeg';
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const staticPath: unknown = require('ffmpeg-static');
         if (staticPath && typeof staticPath === 'string') {
           ffmpegBinary = staticPath;
