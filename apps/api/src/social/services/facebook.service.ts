@@ -1,6 +1,8 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { FACEBOOK_SCOPES } from '../../config/oauth.config';
+
 export interface FacebookUser {
   id: string;
   name: string;
@@ -49,7 +51,7 @@ export class FacebookService {
       this.configService.get<string>('oauth.facebook.redirectUri') ||
       process.env.FACEBOOK_CALLBACK_URL ||
       process.env.FACEBOOK_REDIRECT_URI ||
-      'http://localhost:5000/api/social/facebook/callback'
+      'http://localhost:3001/auth/facebook/callback'
     );
   }
 
@@ -61,14 +63,17 @@ export class FacebookService {
     );
   }
 
-  private get scopes(): string[] {
+  get scopes(): string[] {
     const configuredScopes = this.configService.get<string[]>(
       'oauth.facebook.scopes',
     );
     if (configuredScopes && configuredScopes.length > 0) {
-      return configuredScopes;
+      // Filter out forbidden scopes just in case
+      const forbidden = ['email', 'pages_manage_posts'];
+      const filtered = configuredScopes.filter((s) => !forbidden.includes(s));
+      if (filtered.length > 0) return filtered;
     }
-    return ['public_profile', 'email'];
+    return FACEBOOK_SCOPES;
   }
 
   private get isConfigured(): boolean {
@@ -84,15 +89,28 @@ export class FacebookService {
    * Generates Facebook OAuth URL for user authorization.
    */
   generateAuthUrl(state: string): string {
+    const activeScopes = this.scopes;
     const params = new URLSearchParams({
       client_id: this.appId,
       redirect_uri: this.redirectUri,
-      scope: this.scopes.join(','),
+      scope: activeScopes.join(','),
       state,
       response_type: 'code',
     });
 
-    return `https://www.facebook.com/${this.graphVersion}/dialog/oauth?${params.toString()}`;
+    const authUrl = `https://www.facebook.com/${this.graphVersion}/dialog/oauth?${params.toString()}`;
+
+    this.logger.log(`Generated Facebook OAuth URL: ${authUrl}`);
+    console.log('\n' + '='.repeat(60));
+    console.log('🔗 [FACEBOOK OAUTH URL GENERATED]');
+    console.log('='.repeat(60));
+    console.log(` URL         : ${authUrl}`);
+    console.log(` Client ID   : ${this.appId}`);
+    console.log(` Redirect URI: ${this.redirectUri}`);
+    console.log(` Scope Param : ${params.get('scope')}`);
+    console.log('='.repeat(60) + '\n');
+
+    return authUrl;
   }
 
   /**

@@ -7,6 +7,7 @@ import {
 } from '../../../src/livestreams/entities/livestream.entity';
 import { StreamPlatform } from '../../../src/stream-platforms/entities/stream-platform.entity';
 import { ConnectedAccount } from '../../../src/social/entities/connected-account.entity';
+import { SocialAccount } from '../../../src/social/entities/social-account.entity';
 import { OAuthToken } from '../../../src/social/entities/oauth-token.entity';
 import { ActivityLog } from '../../../src/users/entities/activity-log.entity';
 import { UsageLimitService } from '../../../src/subscriptions/services/usage-limit.service';
@@ -40,6 +41,10 @@ describe('LiveStreamsService (Unit)', () => {
         },
         {
           provide: getRepositoryToken(ConnectedAccount),
+          useValue: createMockRepository(),
+        },
+        {
+          provide: getRepositoryToken(SocialAccount),
           useValue: createMockRepository(),
         },
         {

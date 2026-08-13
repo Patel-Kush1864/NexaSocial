@@ -8,7 +8,12 @@ import { ActivityLog } from '../users/entities/activity-log.entity';
 import { WorkspaceMember } from '../workspace-members/entities/workspace-member.entity';
 import { SocialService } from './services/social.service';
 import { SocialController } from './controllers/social.controller';
-import { FacebookController } from './controllers/facebook.controller';
+import {
+  FacebookController,
+  AuthFacebookController,
+  SocialAccountsFacebookController,
+  FacebookLiveController,
+} from './controllers/facebook.controller';
 import { FacebookService } from './services/facebook.service';
 import { FacebookProvider } from './providers/facebook.provider';
 import { FacebookStrategy } from './strategies/facebook.strategy';
@@ -37,7 +42,13 @@ import { TiktokService } from './platforms/tiktok/tiktok.service';
     SubscriptionsModule,
     LoggerModule,
   ],
-  controllers: [SocialController, FacebookController],
+  controllers: [
+    SocialController,
+    FacebookController,
+    AuthFacebookController,
+    SocialAccountsFacebookController,
+    FacebookLiveController,
+  ],
   providers: [
     SocialService,
     FacebookService,

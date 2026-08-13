@@ -24,10 +24,17 @@ export const socialService = {
     workspaceId: string,
   ): Promise<{ authUrl: string }> {
     if (platform.toUpperCase() === 'FACEBOOK') {
-      const { data } = await apiClient.get<{ url?: string; authUrl?: string }>(
-        '/social/facebook/connect',
-      );
-      return { authUrl: data?.authUrl || data?.url || '' };
+      try {
+        const { data } = await apiClient.get<{ url?: string; authUrl?: string }>(
+          '/auth/facebook',
+        );
+        return { authUrl: data?.authUrl || data?.url || '' };
+      } catch {
+        const { data } = await apiClient.get<{ url?: string; authUrl?: string }>(
+          '/social/facebook/connect',
+        );
+        return { authUrl: data?.authUrl || data?.url || '' };
+      }
     }
     if (platform.toUpperCase() === 'YOUTUBE') {
       const backendUrl =
@@ -50,12 +57,10 @@ export const socialService = {
         apiClient.get<SocialAccount[]>('/social/accounts', {
           params: { workspaceId },
         }).catch(() => ({ data: [] })),
-        apiClient
-          .get<FacebookAccountResponse[]>('/social/facebook/accounts')
-          .catch(() => ({ data: [] })),
+        this.getFacebookAccounts().catch(() => []),
       ]);
 
-      const facebookAccounts: SocialAccount[] = (facebookRes.data || []).map(
+      const facebookAccounts: SocialAccount[] = (facebookRes || []).map(
         (fbAcc: FacebookAccountResponse) => ({
           id: fbAcc.id,
           platform: 'FACEBOOK',
@@ -117,14 +122,25 @@ export const socialService = {
   },
 
   async getFacebookAccounts(): Promise<FacebookAccountResponse[]> {
-    const { data } = await apiClient.get<FacebookAccountResponse[]>(
-      '/social/facebook/accounts',
-    );
-    return data;
+    try {
+      const { data } = await apiClient.get<FacebookAccountResponse[]>(
+        '/social-accounts/facebook',
+      );
+      return data;
+    } catch {
+      const { data } = await apiClient.get<FacebookAccountResponse[]>(
+        '/social/facebook/accounts',
+      );
+      return data;
+    }
   },
 
   async disconnectFacebookAccount(id: string): Promise<void> {
-    await apiClient.delete(`/social/facebook/${id}`);
+    try {
+      await apiClient.delete(`/social-accounts/facebook/${id}`);
+    } catch {
+      await apiClient.delete(`/social/facebook/${id}`);
+    }
   },
 
   async getAccountDetails(

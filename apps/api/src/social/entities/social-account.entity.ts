@@ -46,6 +46,9 @@ export class SocialAccount extends BaseEntity {
   @Column({ name: 'page_access_token', type: 'text', nullable: true })
   pageAccessToken?: string;
 
+  @Column({ name: 'scopes', type: 'text', nullable: true })
+  scopes?: string;
+
   @Column({
     type: 'varchar',
     length: 50,

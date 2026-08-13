@@ -25,7 +25,7 @@ export class FacebookAdapter implements PlatformAdapter {
 
     try {
       const response = await fetch(
-        `https://graph.facebook.com/v16.0/me/live_videos?access_token=${accessToken}`,
+        `https://graph.facebook.com/v23.0/me/live_videos?access_token=${accessToken}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -78,7 +78,7 @@ export class FacebookAdapter implements PlatformAdapter {
 
     try {
       const response = await fetch(
-        `https://graph.facebook.com/v16.0/${platformStreamId}?end_live_video=true&access_token=${accessToken}`,
+        `https://graph.facebook.com/v23.0/${platformStreamId}?end_live_video=true&access_token=${accessToken}`,
         { method: 'POST' },
       );
       if (!response.ok) {
@@ -100,7 +100,7 @@ export class FacebookAdapter implements PlatformAdapter {
 
     try {
       const response = await fetch(
-        `https://graph.facebook.com/v16.0/${platformStreamId}?fields=status&access_token=${accessToken}`,
+        `https://graph.facebook.com/v23.0/${platformStreamId}?fields=status&access_token=${accessToken}`,
       );
       const data = await safeJson(response);
       if (!response.ok) {
@@ -122,7 +122,7 @@ export class FacebookAdapter implements PlatformAdapter {
 
     try {
       const response = await fetch(
-        `https://graph.facebook.com/v16.0/${platformStreamId}?access_token=${accessToken}`,
+        `https://graph.facebook.com/v23.0/${platformStreamId}?access_token=${accessToken}`,
         { method: 'DELETE' },
       );
       if (!response.ok) {

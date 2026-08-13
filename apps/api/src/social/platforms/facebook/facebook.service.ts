@@ -6,22 +6,25 @@ import {
   PlatformProfile,
 } from '../../interfaces/platform-handler.interface';
 
+import { FACEBOOK_SCOPES } from '../../../config/oauth.config';
+
 @Injectable()
 export class FacebookService implements PlatformHandler {
   private readonly clientId = process.env.FACEBOOK_CLIENT_ID;
   private readonly clientSecret = process.env.FACEBOOK_CLIENT_SECRET;
   private readonly redirectUri =
     process.env.FACEBOOK_REDIRECT_URI ||
-    'http://localhost:3000/api/social/callback/facebook';
+    'http://localhost:3001/auth/facebook/callback';
 
   getAuthUrl(state: string): string {
     if (!this.clientId) {
       // Simulation Mode
-      return `http://localhost:3000/api/social/callback/facebook?code=mock_facebook_code&state=${state}`;
+      return `http://localhost:3001/auth/facebook/callback?code=mock_facebook_code&state=${state}`;
     }
-    return `https://www.facebook.com/v16.0/dialog/oauth?client_id=${this.clientId}&redirect_uri=${encodeURIComponent(
+    const scopesStr = FACEBOOK_SCOPES.join(',');
+    return `https://www.facebook.com/v23.0/dialog/oauth?client_id=${this.clientId}&redirect_uri=${encodeURIComponent(
       this.redirectUri,
-    )}&scope=pages_show_list,pages_manage_posts,pages_read_engagement,publish_video&state=${state}`;
+    )}&scope=${scopesStr}&state=${state}`;
   }
 
   async exchangeCode(code: string): Promise<PlatformOAuthResult> {

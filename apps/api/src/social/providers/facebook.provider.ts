@@ -8,6 +8,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { SocialProvider } from '../interfaces/social-provider.interface';
 import {
+  ConnectedAccount,
+  AccountStatus,
+} from '../entities/connected-account.entity';
+import { OAuthToken } from '../entities/oauth-token.entity';
+import {
   SocialAccount,
   SocialAccountStatus,
 } from '../entities/social-account.entity';
@@ -21,6 +26,10 @@ export class FacebookProvider implements SocialProvider {
   constructor(
     @InjectRepository(SocialAccount)
     private readonly socialAccountRepository: Repository<SocialAccount>,
+    @InjectRepository(ConnectedAccount)
+    private readonly accountRepository: Repository<ConnectedAccount>,
+    @InjectRepository(OAuthToken)
+    private readonly tokenRepository: Repository<OAuthToken>,
     private readonly facebookService: FacebookService,
   ) {}
 
@@ -101,18 +110,23 @@ export class FacebookProvider implements SocialProvider {
         });
       }
 
+      const activeScopesStr = this.facebookService.scopes.join(',');
+
       account.provider = 'facebook';
       account.providerName = fbUser.name;
       account.providerEmail = fbUser.email || account.providerEmail;
       account.accessToken = encryptedUserToken;
       account.expiresAt = tokenExpiresAt || account.expiresAt;
+      account.scopes = activeScopesStr;
       account.connected = true;
       account.status = SocialAccountStatus.CONNECTED;
 
       const saved = await this.socialAccountRepository.save(account);
+      await this.syncConnectedAccount(saved);
       savedAccounts.push(saved);
     } else {
       // Save or update a SocialAccount record for each connected page
+      const activeScopesStr = this.facebookService.scopes.join(',');
       for (const page of fbPages) {
         let account = await this.socialAccountRepository.findOne({
           where: {
@@ -139,10 +153,12 @@ export class FacebookProvider implements SocialProvider {
         account.accessToken = encryptedUserToken;
         account.pageAccessToken = encrypt(page.access_token);
         account.expiresAt = tokenExpiresAt || account.expiresAt;
+        account.scopes = activeScopesStr;
         account.connected = true;
         account.status = SocialAccountStatus.CONNECTED;
 
         const saved = await this.socialAccountRepository.save(account);
+        await this.syncConnectedAccount(saved);
         savedAccounts.push(saved);
       }
     }
@@ -228,5 +244,50 @@ export class FacebookProvider implements SocialProvider {
     refreshToken: string,
   ): Promise<{ accessToken: string; expiresIn: number }> {
     return Promise.resolve({ accessToken: refreshToken, expiresIn: 5184000 });
+  }
+
+  private async syncConnectedAccount(saved: SocialAccount, workspaceId?: string) {
+    try {
+      let connAcc = await this.accountRepository.findOne({
+        where: { id: saved.id },
+      });
+      if (!connAcc) {
+        connAcc = this.accountRepository.create({
+          id: saved.id,
+          workspaceId: workspaceId || 'default_workspace',
+          platformName: 'FACEBOOK',
+          platformUserId: saved.pageId || saved.providerUserId,
+          name: saved.pageName || saved.providerName || 'Facebook Page',
+          status: AccountStatus.CONNECTED,
+        });
+        await this.accountRepository.save(connAcc);
+      } else {
+        connAcc.name = saved.pageName || saved.providerName || connAcc.name;
+        connAcc.status = AccountStatus.CONNECTED;
+        await this.accountRepository.save(connAcc);
+      }
+
+      let tokenRec = await this.tokenRepository.findOne({
+        where: { connectedAccountId: saved.id },
+      });
+      if (!tokenRec) {
+        tokenRec = this.tokenRepository.create({
+          connectedAccountId: saved.id,
+          accessToken: saved.pageAccessToken || saved.accessToken || '',
+          expiresAt: saved.expiresAt,
+          scope: saved.scopes,
+        });
+        await this.tokenRepository.save(tokenRec);
+      } else {
+        tokenRec.accessToken =
+          saved.pageAccessToken || saved.accessToken || tokenRec.accessToken;
+        tokenRec.expiresAt = saved.expiresAt || tokenRec.expiresAt;
+        tokenRec.scope = saved.scopes || tokenRec.scope;
+        await this.tokenRepository.save(tokenRec);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Could not sync ConnectedAccount table: ${msg}`);
+    }
   }
 }

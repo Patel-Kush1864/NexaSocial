@@ -15,7 +15,11 @@ import {
   StreamPlatform,
   StreamPlatformStatus,
 } from '../../stream-platforms/entities/stream-platform.entity';
-import { ConnectedAccount } from '../../social/entities/connected-account.entity';
+import {
+  ConnectedAccount,
+  AccountStatus,
+} from '../../social/entities/connected-account.entity';
+import { SocialAccount } from '../../social/entities/social-account.entity';
 import { OAuthToken } from '../../social/entities/oauth-token.entity';
 import { ActivityLog } from '../../users/entities/activity-log.entity';
 import { CreateStreamDto, UpdateStreamDto } from '../dto/livestream.dto';
@@ -50,6 +54,8 @@ export class LiveStreamsService {
     private readonly streamPlatformRepository: Repository<StreamPlatform>,
     @InjectRepository(ConnectedAccount)
     private readonly accountRepository: Repository<ConnectedAccount>,
+    @InjectRepository(SocialAccount)
+    private readonly socialAccountRepository: Repository<SocialAccount>,
     @InjectRepository(OAuthToken)
     private readonly tokenRepository: Repository<OAuthToken>,
     @InjectRepository(ActivityLog)
@@ -68,7 +74,67 @@ export class LiveStreamsService {
     // Inject Media Pipeline Services
     private readonly ffmpegService: FFmpegService,
     private readonly mediaServerService: MediaServerService,
-  ) { }
+  ) {}
+
+  private async resolveAndSyncAccounts(
+    accountIds: string[],
+    workspaceId: string,
+  ): Promise<ConnectedAccount[]> {
+    if (!accountIds || accountIds.length === 0) return [];
+
+    let accounts = await this.accountRepository.find({
+      where: { id: In(accountIds) },
+    });
+
+    if (accounts.length !== accountIds.length) {
+      const existingIds = new Set(accounts.map((a) => a.id));
+      const missingIds = accountIds.filter((id) => !existingIds.has(id));
+
+      const socialAccounts = await this.socialAccountRepository.find({
+        where: { id: In(missingIds) },
+      });
+
+      for (const sa of socialAccounts) {
+        let connAcc = await this.accountRepository.findOne({
+          where: { id: sa.id },
+        });
+        if (!connAcc) {
+          connAcc = this.accountRepository.create({
+            id: sa.id,
+            workspaceId: workspaceId,
+            platformName: (sa.provider || 'FACEBOOK').toUpperCase(),
+            platformUserId: sa.pageId || sa.providerUserId,
+            name: sa.pageName || sa.providerName || 'Facebook Page',
+            status: AccountStatus.CONNECTED,
+          });
+          await this.accountRepository.save(connAcc);
+        }
+
+        let tokenRec = await this.tokenRepository.findOne({
+          where: { connectedAccountId: sa.id },
+        });
+        if (!tokenRec) {
+          tokenRec = this.tokenRepository.create({
+            connectedAccountId: sa.id,
+            accessToken: sa.pageAccessToken || sa.accessToken || '',
+            expiresAt: sa.expiresAt,
+            scope: sa.scopes,
+          });
+          await this.tokenRepository.save(tokenRec);
+        }
+
+        accounts.push(connAcc);
+      }
+    }
+
+    if (accounts.length !== accountIds.length) {
+      throw new BadRequestException(
+        'Selected connected accounts are invalid for this workspace.',
+      );
+    }
+
+    return accounts;
+  }
 
   private getPlatformAdapter(platformName: string): PlatformAdapter {
     const p = platformName.toUpperCase();
@@ -96,17 +162,10 @@ export class LiveStreamsService {
 
     // 2. Validate connected accounts belong to workspace
     const accountIds = dto.connectedAccountIds || dto.platformAccountIds || [];
-    let accounts: ConnectedAccount[] = [];
-    if (accountIds.length > 0) {
-      accounts = await this.accountRepository.find({
-        where: { id: In(accountIds), workspaceId },
-      });
-      if (accounts.length !== accountIds.length) {
-        throw new BadRequestException(
-          'Selected connected accounts are invalid for this workspace.',
-        );
-      }
-    }
+    const accounts = await this.resolveAndSyncAccounts(
+      accountIds,
+      workspaceId,
+    );
 
     // 3. Create LiveStream entity (DRAFT status)
     let scheduledAtDate: Date | undefined;
@@ -214,15 +273,11 @@ export class LiveStreamsService {
 
     // Update platform mappings if specified
     const updateAccountIds = dto.connectedAccountIds || dto.platformAccountIds;
-    if (updateAccountIds) {
-      const accounts = await this.accountRepository.find({
-        where: { id: In(updateAccountIds), workspaceId },
-      });
-      if (accounts.length !== updateAccountIds.length) {
-        throw new BadRequestException(
-          'Selected connected accounts are invalid.',
-        );
-      }
+    if (updateAccountIds && updateAccountIds.length > 0) {
+      const accounts = await this.resolveAndSyncAccounts(
+        updateAccountIds,
+        workspaceId,
+      );
       // Remove old platform stream details
       await this.streamPlatformRepository.delete({ streamId: id });
       // Create new platform stream details

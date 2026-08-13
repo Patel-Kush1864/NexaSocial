@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { LiveStream } from './entities/livestream.entity';
 import { StreamPlatform } from '../stream-platforms/entities/stream-platform.entity';
 import { ConnectedAccount } from '../social/entities/connected-account.entity';
+import { SocialAccount } from '../social/entities/social-account.entity';
 import { OAuthToken } from '../social/entities/oauth-token.entity';
 import { ActivityLog } from '../users/entities/activity-log.entity';
 import { WorkspaceMember } from '../workspace-members/entities/workspace-member.entity';
@@ -30,6 +31,7 @@ import { LinkedinAdapter } from './adapters/linkedin.adapter';
       LiveStream,
       StreamPlatform,
       ConnectedAccount,
+      SocialAccount,
       OAuthToken,
       ActivityLog,
       WorkspaceMember,

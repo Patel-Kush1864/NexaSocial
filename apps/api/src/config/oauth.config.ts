@@ -1,5 +1,11 @@
 import { registerAs } from '@nestjs/config';
 
+export const FACEBOOK_SCOPES = [
+  'pages_show_list',
+  'pages_read_engagement',
+  'pages_manage_metadata',
+];
+
 export default registerAs('oauth', () => ({
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID,
@@ -16,9 +22,9 @@ export default registerAs('oauth', () => ({
     redirectUri:
       process.env.FACEBOOK_CALLBACK_URL ||
       process.env.FACEBOOK_REDIRECT_URI ||
-      'http://localhost:5000/api/social/facebook/callback',
+      'http://localhost:3001/auth/facebook/callback',
     graphVersion: process.env.FACEBOOK_GRAPH_VERSION || 'v23.0',
-    scopes: ['public_profile', 'email'],
+    scopes: FACEBOOK_SCOPES,
   },
   linkedin: {
     clientId: process.env.LINKEDIN_CLIENT_ID,

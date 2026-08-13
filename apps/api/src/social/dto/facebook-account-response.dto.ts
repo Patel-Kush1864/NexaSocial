@@ -9,6 +9,7 @@ export class FacebookAccountResponseDto {
   providerEmail?: string;
   pageId?: string;
   pageName?: string;
+  scopes?: string;
   status: string;
   connectedAt: Date;
   createdAt: Date;
@@ -24,6 +25,7 @@ export class FacebookAccountResponseDto {
       providerEmail: entity.providerEmail,
       pageId: entity.pageId,
       pageName: entity.pageName,
+      scopes: entity.scopes,
       status: entity.status,
       connectedAt: entity.connectedAt,
       createdAt: entity.createdAt || entity.created_at,
