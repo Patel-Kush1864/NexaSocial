@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import apiClient from '@/lib/api-client';
 
-export default function FacebookOAuthCallbackPage() {
+function FacebookOAuthCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -47,5 +46,22 @@ export default function FacebookOAuthCallbackPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function FacebookOAuthCallbackPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen flex-col items-center justify-center bg-slate-950 text-white p-4">
+          <div className="flex flex-col items-center gap-4 text-center">
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"></div>
+            <h2 className="text-xl font-semibold">Connecting Facebook Account...</h2>
+          </div>
+        </div>
+      }
+    >
+      <FacebookOAuthCallbackContent />
+    </Suspense>
   );
 }

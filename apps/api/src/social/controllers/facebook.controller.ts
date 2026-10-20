@@ -20,6 +20,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { FacebookProvider } from '../providers/facebook.provider';
 import { SocialAccount } from '../entities/social-account.entity';
+import { Platform } from '../../database/entities/platform.entity';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { CurrentUser as CurrentUserType } from '../../auth/interfaces/current-user.interface';
@@ -38,7 +39,11 @@ export class CreateFacebookLiveDto {
 export class FacebookController {
   private readonly logger = new Logger(FacebookController.name);
 
-  constructor(private readonly facebookProvider: FacebookProvider) {}
+  constructor(
+    private readonly facebookProvider: FacebookProvider,
+    @InjectRepository(Platform)
+    private readonly platformRepository: Repository<Platform>,
+  ) {}
 
   /**
    * GET /api/social/facebook/connect
@@ -46,14 +51,24 @@ export class FacebookController {
    */
   @Get('connect')
   @UseGuards(JwtAuthGuard)
-  connect(
+  async connect(
     @CurrentUser() user: CurrentUserType,
     @Query('redirect') redirect?: string,
     @Res({ passthrough: true }) res?: Response,
-  ): { url: string } | void {
+  ): Promise<{ url: string } | void> {
     if (!user || !user.id) {
       throw new UnauthorizedException('User authentication required');
     }
+
+    const platformRecord = await this.platformRepository.findOne({
+      where: { name: 'Facebook' },
+    });
+    if (platformRecord && !platformRecord.isActive) {
+      throw new BadRequestException(
+        'This social platform is currently unavailable.',
+      );
+    }
+
     const authUrl = this.facebookProvider.connect(user.id);
     this.logger.log(
       `Initiated Facebook OAuth authorization for user ${user.id}`,
@@ -335,7 +350,9 @@ export class FacebookLiveController {
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         this.logger.error(`Failed to decrypt Facebook access token: ${msg}`);
-        throw new BadRequestException('Invalid or corrupt Facebook access token');
+        throw new BadRequestException(
+          'Invalid or corrupt Facebook access token',
+        );
       }
     }
 
@@ -411,7 +428,9 @@ export class FacebookLiveController {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`Facebook Live video creation error: ${msg}`);
-      throw new BadRequestException(`Facebook Live Video creation failed: ${msg}`);
+      throw new BadRequestException(
+        `Facebook Live Video creation failed: ${msg}`,
+      );
     }
   }
 }

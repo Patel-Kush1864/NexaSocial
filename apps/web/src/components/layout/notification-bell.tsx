@@ -57,7 +57,7 @@ export function NotificationBell() {
         </div>
 
         <div className="max-h-80 overflow-y-auto divide-y divide-border/30">
-          {notifications.length === 0 ? (
+          {!Array.isArray(notifications) || notifications.length === 0 ? (
             <div className="p-8 text-center text-xs text-muted-foreground space-y-1">
               <p className="font-semibold text-foreground">No notifications</p>
               <p>You&apos;re all caught up!</p>

@@ -7,11 +7,20 @@ import {
   Headers,
   UseGuards,
   BadRequestException,
+  Query,
+  Param,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { PaymentsService } from './payments.service';
 import { CreatePaymentOrderDto } from './dto/create-payment-order.dto';
 import { VerifyPaymentDto } from './dto/verify-payment.dto';
+import { PaymentListQueryDto } from './dto/payment-list-query.dto';
+import { PaymentStatisticsQueryDto } from './dto/payment-statistics-query.dto';
+import { PaymentExportQueryDto } from './dto/payment-export-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { RequirePermission } from '../auth/decorators/permissions.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser as CurrentUserType } from '../auth/interfaces/current-user.interface';
 import { Public } from '../auth/decorators/public.decorator';
@@ -91,5 +100,57 @@ export class PaymentsController {
       throw new BadRequestException('User context missing');
     }
     return this.paymentsService.getHistory(user.id);
+  }
+
+  // --- ADMIN PLATFORM ROUTES ---
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('platform.payments.view')
+  @Get()
+  async findAll(@Query() query: PaymentListQueryDto) {
+    return this.paymentsService.findAll(query);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('platform.payments.view')
+  @Get('statistics')
+  async getStatistics(@Query() query: PaymentStatisticsQueryDto) {
+    return this.paymentsService.getStatistics(query);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('platform.payments.view')
+  @Get('export')
+  async exportPayments(
+    @Query() query: PaymentExportQueryDto,
+    @Res() res: Response,
+  ) {
+    const data = await this.paymentsService.exportPayments(query);
+
+    if (!data.length) {
+      return res.status(200).send('No payments found matching criteria.');
+    }
+
+    const header = Object.keys(data[0]).join(',');
+    const rows = data.map((row) =>
+      Object.values(row)
+        .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+        .join(','),
+    );
+    const csv = [header, ...rows].join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="payments-export.csv"',
+    );
+    return res.status(200).send(csv);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('platform.payments.view')
+  @Get(':id')
+  async findOneById(@Param('id') id: string) {
+    return this.paymentsService.findOneById(id);
   }
 }

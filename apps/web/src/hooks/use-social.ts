@@ -73,6 +73,7 @@ export function useSocialAccounts(workspaceId?: string) {
     accounts: accountsQuery.data || [],
     platforms: platformsQuery.data || [],
     isLoading: accountsQuery.isLoading,
+    refetch: accountsQuery.refetch,
     connect: connectMutation.mutateAsync,
     sync: syncMutation.mutateAsync,
     disconnect: disconnectMutation.mutateAsync,

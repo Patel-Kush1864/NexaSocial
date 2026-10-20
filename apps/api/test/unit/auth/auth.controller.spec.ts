@@ -29,7 +29,7 @@ describe('AuthController (Unit)', () => {
   describe('register', () => {
     it('should delegate register call to AuthService', async () => {
       const mockUser = createMockUser();
-      authService.register!.mockResolvedValue(mockUser as any);
+      (authService.register as jest.Mock).mockResolvedValue(mockUser as any);
 
       const res = await authController.register(mockRegisterDto);
       expect(authService.register).toHaveBeenCalledWith(mockRegisterDto);
@@ -45,7 +45,7 @@ describe('AuthController (Unit)', () => {
         refreshToken: 'r-1',
         expiresIn: 900,
       };
-      authService.login!.mockResolvedValue(mockTokenRes);
+      (authService.login as jest.Mock).mockResolvedValue(mockTokenRes);
 
       const req = {
         user,

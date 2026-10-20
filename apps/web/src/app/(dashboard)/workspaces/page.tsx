@@ -11,6 +11,8 @@ import { LoadingSpinner } from '@/components/shared/loading-spinner';
 import { EmptyState } from '@/components/shared/empty-state';
 import { Building2, Plus, Users, ArrowRight, Check } from 'lucide-react';
 
+import { PermissionGuard } from '@/components/auth/permission-guard';
+
 export function WorkspacesPage() {
   const { currentWorkspace, workspaces, isLoading, switchWorkspace } = useWorkspace();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -121,4 +123,10 @@ export function WorkspacesPage() {
   );
 }
 
-export default WorkspacesPage;
+export default function ProtectedWorkspacesPage() {
+  return (
+    <PermissionGuard permission="workspace.view">
+      <WorkspacesPage />
+    </PermissionGuard>
+  );
+}

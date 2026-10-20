@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSidebarStore } from '@/stores/sidebar-store';
-import { DASHBOARD_NAV_ITEMS } from '@/lib/constants';
+import { useAuthStore } from '@/stores/auth-store';
+import { getVisibleNavigation } from '@/config/navigation';
 import { WorkspaceSwitcher } from './workspace-switcher';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
@@ -16,6 +17,17 @@ import {
   Bell,
   CreditCard,
   Settings,
+  Users,
+  Package,
+  Activity,
+  Globe,
+  Link as LinkIcon,
+  FileText,
+  Image as ImageIcon,
+  FileSearch,
+  Shield,
+  UserCog,
+  Flag,
 } from 'lucide-react';
 
 const ICON_MAP = {
@@ -27,11 +39,37 @@ const ICON_MAP = {
   Bell,
   CreditCard,
   Settings,
+  Users,
+  Package,
+  Activity,
+  Globe,
+  Link: LinkIcon,
+  FileText,
+  Image: ImageIcon,
+  FileSearch,
+  Shield,
+  UserCog,
+  Flag,
+  Repeat: Activity, // Fallback
+  Wallet: CreditCard, // Fallback
 };
+
+import { Lock } from 'lucide-react';
+import { useSubscriptionEntitlements } from '@/hooks/use-entitlements';
+import { toast } from 'sonner';
 
 export function MobileSidebar() {
   const pathname = usePathname();
   const { isMobileOpen, setMobileOpen } = useSidebarStore();
+  const { scope } = useAuthStore();
+  const { hasActiveSubscription } = useSubscriptionEntitlements();
+
+  const isRouteLocked = (href: string) => {
+    if (scope === 'PLATFORM') return false;
+    if (hasActiveSubscription) return false;
+    const allowed = ['/dashboard', '/billing', '/settings', '/notifications'];
+    return !allowed.some((allowedPath) => href === allowedPath || href.startsWith(`${allowedPath}/`));
+  };
 
   return (
     <Sheet open={isMobileOpen} onOpenChange={setMobileOpen}>
@@ -48,28 +86,58 @@ export function MobileSidebar() {
 
           <WorkspaceSwitcher />
 
-          <nav className="space-y-1">
-            {DASHBOARD_NAV_ITEMS.map((item) => {
-              const Icon = ICON_MAP[item.icon as keyof typeof ICON_MAP] || LayoutDashboard;
-              const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+          <nav className="space-y-4 overflow-y-auto">
+            {getVisibleNavigation({ scope, hasPermission: useAuthStore.getState().hasPermission }).map((section) => (
+              <div key={section.id} className="space-y-1">
+                {section.label && (
+                  <h4 className="px-3 text-xs font-semibold text-muted-foreground/70 uppercase tracking-wider mb-2">
+                    {section.label}
+                  </h4>
+                )}
+                
+                {section.items.map((item) => {
+                  const Icon = ICON_MAP[item.icon as keyof typeof ICON_MAP] || LayoutDashboard;
+                  const isActive = pathname === item.href || (!item.isDashboard && pathname.startsWith(item.href));
+                  const locked = isRouteLocked(item.href);
 
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setMobileOpen(false)}
-                  className={cn(
-                    'flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-sm transition-all',
-                    isActive
-                      ? 'bg-gradient-to-r from-violet-600/20 to-indigo-600/20 text-primary border border-primary/30 font-semibold'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/40',
-                  )}
-                >
-                  <Icon className="w-5 h-5" />
-                  <span>{item.label}</span>
-                </Link>
-              );
-            })}
+                  return (
+                    <Link
+                      key={item.href}
+                      href={locked ? '/dashboard' : item.href}
+                      onClick={(e) => {
+                        setMobileOpen(false);
+                        if (locked) {
+                          e.preventDefault();
+                          toast.info('Feature Locked', {
+                            description: 'Choose a subscription plan to unlock NexaSocial features.',
+                          });
+                        }
+                      }}
+                      className={cn(
+                        'flex items-center justify-between px-3 py-2.5 rounded-xl font-medium text-sm transition-all',
+                        isActive && !locked
+                          ? 'bg-gradient-to-r from-violet-600/20 to-indigo-600/20 text-primary border border-primary/30 font-semibold'
+                          : locked
+                            ? 'text-muted-foreground/50 hover:bg-muted/30 cursor-not-allowed'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-accent/40',
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Icon
+                          className={cn(
+                            'w-5 h-5 shrink-0 transition-colors',
+                            isActive && !locked ? 'text-primary' : 'text-muted-foreground',
+                            locked && 'opacity-60',
+                          )}
+                        />
+                        <span className={cn(locked && 'opacity-70')}>{item.label}</span>
+                      </div>
+                      {locked && <Lock className="w-3.5 h-3.5 text-muted-foreground/70 shrink-0" />}
+                    </Link>
+                  );
+                })}
+              </div>
+            ))}
           </nav>
         </div>
       </SheetContent>

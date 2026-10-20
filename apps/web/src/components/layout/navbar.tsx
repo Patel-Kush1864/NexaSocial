@@ -5,8 +5,8 @@ import { useTheme } from 'next-themes';
 import { NotificationBell } from './notification-bell';
 import { UserMenu } from './user-menu';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Menu, Moon, Sun, Search } from 'lucide-react';
+import { Menu, Moon, Sun } from 'lucide-react';
+import { GlobalSearch } from './global-search';
 
 export function Navbar() {
   const { toggleMobile } = useSidebarStore();
@@ -25,15 +25,7 @@ export function Navbar() {
           <Menu className="w-5 h-5" />
         </Button>
 
-        {/* Global Search Bar */}
-        <div className="relative hidden sm:flex items-center w-64 md:w-80">
-          <Search className="w-4 h-4 absolute left-3 text-muted-foreground pointer-events-none" />
-          <Input
-            type="search"
-            placeholder="Search streams, accounts, settings..."
-            className="pl-9 h-9 text-xs bg-muted/40 border-border/40 focus-visible:bg-background"
-          />
-        </div>
+        <GlobalSearch />
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">

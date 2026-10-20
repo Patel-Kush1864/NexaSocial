@@ -7,12 +7,9 @@ import { motion } from 'framer-motion';
 
 const PLATFORMS = [
   { name: 'YouTube Live', icon: '🔴', status: 'OAuth 2.0 + RTMP Ingest', category: 'Live & VOD', latency: '12ms', syncRate: '99.99%' },
-  { name: 'Twitch', icon: '👾', status: 'OAuth + Helix API', category: 'Live Stream', latency: '10ms', syncRate: '99.98%' },
+  { name: 'Instagram Live', icon: '📸', status: 'Live Producer + RTMPS Relay', category: 'Live Stream', latency: '14ms', syncRate: '99.96%' },
   { name: 'Facebook Live', icon: '📘', status: 'Pages & Groups API', category: 'Live Stream', latency: '15ms', syncRate: '99.95%' },
-  { name: 'Instagram Live', icon: '📸', status: 'Professional Account API', category: 'Short Form', latency: '18ms', syncRate: '99.90%' },
   { name: 'X / Twitter', icon: '𝕏', status: 'Media Studio / API v2', category: 'Professional', latency: '14ms', syncRate: '99.97%' },
-  { name: 'LinkedIn Live', icon: '💼', status: 'Pages & Executive Live', category: 'Professional', latency: '16ms', syncRate: '99.92%' },
-  { name: 'TikTok Live', icon: '🎵', status: 'Stream Key Integration', category: 'Short Form', latency: '15ms', syncRate: '99.94%' },
   { name: 'Custom RTMP / SRT', icon: '🌐', status: 'Custom Server Endpoints', category: 'Live Stream', latency: '8ms', syncRate: '100.0%' },
 ];
 
@@ -36,7 +33,7 @@ export function LandingPlatforms() {
           Connect All Your Major Broadcast <span className="gradient-text">Destinations</span>
         </h2>
         <p className="text-sm sm:text-base text-muted-foreground leading-relaxed">
-          Single-click OAuth 2.0 authorization and automatic RTMP key binding for 7 major social channels.
+          Single-click OAuth 2.0 authorization and automatic RTMP key binding for major social channels.
         </p>
 
         {/* Category Pills */}

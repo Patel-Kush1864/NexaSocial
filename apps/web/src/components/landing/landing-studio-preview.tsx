@@ -28,19 +28,17 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const INITIAL_DESTINATIONS = [
   { id: 'yt', name: 'YouTube Live', icon: '📺', active: true, viewers: '4.2k', status: 'LIVE' },
-  { id: 'tw', name: 'Twitch', icon: '👾', active: true, viewers: '2.8k', status: 'LIVE' },
-  { id: 'fb', name: 'Facebook Live', icon: '📘', active: true, viewers: '1.5k', status: 'LIVE' },
-  { id: 'x', name: 'X / Twitter Spaces', icon: '𝕏', active: true, viewers: '1.1k', status: 'LIVE' },
-  { id: 'li', name: 'LinkedIn Live', icon: '💼', active: true, viewers: '890', status: 'LIVE' },
-  { id: 'tk', name: 'TikTok Live', icon: '🎵', active: false, viewers: '0', status: 'STANDBY' },
+  { id: 'fb', name: 'Facebook Live', icon: '📘', active: true, viewers: '2.5k', status: 'LIVE' },
+  { id: 'ig', name: 'Instagram Live', icon: '📸', active: true, viewers: '3.1k', status: 'LIVE' },
+  { id: 'x', name: 'X / Twitter Spaces', icon: '𝕏', active: true, viewers: '1.4k', status: 'LIVE' },
 ];
 
 const MOCK_CHAT_MESSAGES = [
-  { user: 'Alex_Streamer', platform: '👾', text: '1080p60 stream is crystal clear!' },
+  { user: 'Alex_Streamer', platform: '📸', text: '1080p60 stream is crystal clear!' },
   { user: 'SarahTech', platform: '📺', text: 'Love the instant multi-destination sync 👌' },
   { user: 'DevDavid', platform: '📘', text: 'Bitrate looks rock solid 🔥' },
-  { user: 'Elena_V', platform: '💼', text: 'Super clean dashboard UI!' },
-  { user: 'GamerX99', platform: '👾', text: 'Zero frame drop recorded!' },
+  { user: 'Elena_V', platform: '𝕏', text: 'Super clean dashboard UI!' },
+  { user: 'GamerX99', platform: '📸', text: 'Zero frame drop recorded!' },
 ];
 
 export function LandingStudioPreview() {
@@ -405,10 +403,10 @@ export function LandingStudioPreview() {
                       + Viral Thread Prompt
                     </button>
                     <button
-                      onClick={() => setPromptText('Draft TikTok captions with top trending tech hashtags')}
+                      onClick={() => setPromptText('Draft Instagram captions with top trending tech hashtags')}
                       className="text-[11px] px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-indigo-300 hover:bg-indigo-500/10"
                     >
-                      + TikTok Captions
+                      + Instagram Captions
                     </button>
                   </div>
 
@@ -426,7 +424,7 @@ export function LandingStudioPreview() {
 
                   <div className="space-y-2 text-xs text-foreground/90 font-mono leading-relaxed">
                     <p className="font-bold text-violet-300">
-                      🚀 Big news for creators! Broadcast to 7 social platforms at once in 1080p60 with zero stream delay.
+                      🚀 Big news for creators! Broadcast to 4 social platforms at once in 1080p60 with zero stream delay.
                     </p>
                     <p className="text-muted-foreground">
                       Whether you are hosting a live keynote or scheduling weekly video clips, NexaSocial handles it all from one command deck.
@@ -437,7 +435,7 @@ export function LandingStudioPreview() {
                   </div>
 
                   <div className="pt-4 border-t border-white/10 flex items-center justify-between text-[11px] text-muted-foreground font-mono">
-                    <span>Platforms target: X, LinkedIn, TikTok, IG</span>
+                    <span>Platforms target: YouTube, Facebook, Instagram, X</span>
                     <span className="text-violet-400 font-bold">Ready to dispatch</span>
                   </div>
                 </div>
@@ -483,14 +481,14 @@ export function LandingStudioPreview() {
                 <div className="p-4 rounded-xl bg-white/5 border border-white/5 space-y-1">
                   <span className="text-[11px] font-mono text-muted-foreground">NEW FOLLOWERS</span>
                   <p className="text-2xl font-black font-mono text-amber-400">+12,840</p>
-                  <span className="text-[10px] text-amber-400 font-mono">Across 7 networks</span>
+                  <span className="text-[10px] text-amber-400 font-mono">Across 4 networks</span>
                 </div>
               </div>
 
               <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3">
                 <div className="flex justify-between text-xs font-mono text-muted-foreground">
                   <span>CHANNEL ENGAGEMENT DISTRIBUTION</span>
-                  <span className="text-foreground">YouTube (42%) • TikTok (28%) • X (18%) • LinkedIn (12%)</span>
+                  <span className="text-foreground">YouTube (42%) • Instagram (28%) • Facebook (18%) • X (12%)</span>
                 </div>
                 <div className="w-full h-3 rounded-full bg-white/10 flex overflow-hidden">
                   <div className="h-full bg-rose-500 w-[42%]" />
@@ -520,9 +518,9 @@ export function LandingStudioPreview() {
 
               <div className="space-y-3">
                 {[
-                  { time: 'Today @ 18:00 EST', channel: 'YouTube & Twitch', text: 'Live Q&A: Enterprise Multi-Streaming Setup', status: 'Scheduled' },
-                  { time: 'Tomorrow @ 09:30 EST', channel: 'LinkedIn & X', text: '5 Key Social Analytics Metrics to Track in 2026', status: 'Approved' },
-                  { time: 'Aug 14 @ 14:00 GMT', channel: 'TikTok & IG Reels', text: 'Behind the Scenes of 1080p RTMP Ingest', status: 'Draft' },
+                  { time: 'Today @ 18:00 EST', channel: 'YouTube & Facebook', text: 'Live Q&A: Enterprise Multi-Streaming Setup', status: 'Scheduled' },
+                  { time: 'Tomorrow @ 09:30 EST', channel: 'Instagram & X', text: '5 Key Social Analytics Metrics to Track in 2026', status: 'Approved' },
+                  { time: 'Aug 14 @ 14:00 GMT', channel: 'Instagram Reels & X', text: 'Behind the Scenes of 1080p RTMP Ingest', status: 'Draft' },
                 ].map((item, idx) => (
                   <div key={idx} className="p-3.5 rounded-xl bg-white/5 border border-white/10 flex items-center justify-between text-xs">
                     <div className="space-y-1">

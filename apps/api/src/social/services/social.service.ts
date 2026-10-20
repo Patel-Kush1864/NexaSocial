@@ -21,10 +21,13 @@ import { PlatformHandler } from '../interfaces/platform-handler.interface';
 import { YoutubeService } from '../platforms/youtube/youtube.service';
 import { FacebookService } from '../platforms/facebook/facebook.service';
 import { InstagramService } from '../platforms/instagram/instagram.service';
+
 import { LinkedinService } from '../platforms/linkedin/linkedin.service';
 import { TwitterService } from '../platforms/twitter/twitter.service';
 import { TwitchService } from '../platforms/twitch/twitch.service';
 import { TiktokService } from '../platforms/tiktok/tiktok.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class SocialService {
@@ -41,11 +44,13 @@ export class SocialService {
     private readonly memberRepository: Repository<WorkspaceMember>,
     private readonly usageLimitService: UsageLimitService,
     private readonly loggerService: LoggerServiceWrapper,
+    private readonly eventEmitter: EventEmitter2,
 
     // Inject Platform Services
     private readonly youtubeService: YoutubeService,
     private readonly facebookService: FacebookService,
     private readonly instagramService: InstagramService,
+
     private readonly linkedinService: LinkedinService,
     private readonly twitterService: TwitterService,
     private readonly twitchService: TwitchService,
@@ -57,10 +62,7 @@ export class SocialService {
     if (p === 'YOUTUBE') return this.youtubeService;
     if (p === 'FACEBOOK') return this.facebookService;
     if (p === 'INSTAGRAM') return this.instagramService;
-    if (p === 'LINKEDIN') return this.linkedinService;
     if (p === 'TWITTER' || p === 'X') return this.twitterService;
-    if (p === 'TWITCH') return this.twitchService;
-    if (p === 'TIKTOK') return this.tiktokService;
     throw new BadRequestException(`Unsupported social platform: ${platform}`);
   }
 
@@ -81,12 +83,64 @@ export class SocialService {
       );
     }
 
+    const p = platform.toUpperCase();
+    const platformNameMap: Record<string, string> = {
+      YOUTUBE: 'YouTube',
+      FACEBOOK: 'Facebook',
+      INSTAGRAM: 'Instagram',
+      TWITTER: 'X',
+      X: 'X',
+    };
+
+    const dbName = platformNameMap[p];
+    if (dbName) {
+      const platformRecord = await this.platformRepository.findOne({
+        where: { name: dbName },
+      });
+      if (platformRecord && !platformRecord.isActive) {
+        throw new BadRequestException(
+          'This social platform is currently unavailable.',
+        );
+      }
+    }
+
     const handler = this.getPlatformHandler(platform);
+    // Retrieve canonical redirect URI from handler if supported
+    const redirectUri = (handler as any).canonicalRedirectUri || undefined;
+    const nonce = crypto.randomBytes(16).toString('hex');
+
     // Encode state parameters securely
-    const stateObj = { workspaceId, platform: platform.toUpperCase(), userId };
+    const stateObj = {
+      workspaceId,
+      platform: platform.toUpperCase(),
+      userId,
+      redirectUri,
+      nonce,
+      timestamp: Date.now(),
+    };
     const state = Buffer.from(JSON.stringify(stateObj)).toString('base64');
 
     return { url: handler.getAuthUrl(state) };
+  }
+
+  /**
+   * Tracks consumed authorization code hashes to prevent duplicate/replay token exchanges.
+   * Codes expire naturally from memory after 15 minutes.
+   */
+  private readonly consumedAuthCodes = new Map<string, number>();
+
+  private markCodeConsumed(codeHash: string): void {
+    const now = Date.now();
+    this.consumedAuthCodes.set(codeHash, now);
+
+    // Evict entries older than 15 minutes if cache grows
+    if (this.consumedAuthCodes.size > 200) {
+      for (const [hash, time] of this.consumedAuthCodes.entries()) {
+        if (now - time > 15 * 60 * 1000) {
+          this.consumedAuthCodes.delete(hash);
+        }
+      }
+    }
   }
 
   async handleCallback(
@@ -94,22 +148,75 @@ export class SocialService {
     code: string,
     stateStr: string,
   ): Promise<ConnectedAccount> {
-    let workspaceId = '';
-    let userId = '';
+    if (!code || typeof code !== 'string') {
+      throw new BadRequestException('Missing authorization code');
+    }
+    if (!stateStr || typeof stateStr !== 'string') {
+      throw new BadRequestException('Missing OAuth state parameter');
+    }
+
+    let decoded: any;
     try {
-      const decoded = JSON.parse(
+      decoded = JSON.parse(
         Buffer.from(stateStr, 'base64').toString('utf8'),
       );
-      workspaceId = decoded.workspaceId;
-      userId = decoded.userId;
     } catch {
       throw new BadRequestException(
         'OAuth state validation parameter is invalid',
       );
     }
 
+    const {
+      workspaceId,
+      userId,
+      platform: statePlatform,
+      redirectUri: stateRedirectUri,
+      timestamp,
+    } = decoded;
+
+    if (!workspaceId || !userId) {
+      throw new BadRequestException(
+        'OAuth state missing required workspace or user identifiers',
+      );
+    }
+
+    if (
+      statePlatform &&
+      statePlatform.toUpperCase() !== platform.toUpperCase()
+    ) {
+      throw new BadRequestException(
+        `OAuth state platform mismatch: expected ${platform.toUpperCase()}, got ${statePlatform}`,
+      );
+    }
+
+    // Reject expired state (> 15 minutes)
+    if (timestamp && Date.now() - timestamp > 15 * 60 * 1000) {
+      throw new BadRequestException(
+        'OAuth state parameter has expired. Please initiate the connection again.',
+      );
+    }
+
+    // Replay attack and duplicate code prevention:
+    // Meta authorization codes are single-use and expire within seconds/minutes.
+    const cleanCode = code.replace(/#_.*$/, '').trim();
+    if (!cleanCode) {
+      throw new BadRequestException('Authorization code is empty after sanitization');
+    }
+
+    const codeHash = crypto
+      .createHash('sha256')
+      .update(cleanCode)
+      .digest('hex');
+
+    if (this.consumedAuthCodes.has(codeHash)) {
+      throw new BadRequestException(
+        'OAuth authorization code has already been consumed or processed. Please start a new connection.',
+      );
+    }
+    this.markCodeConsumed(codeHash);
+
     const handler = this.getPlatformHandler(platform);
-    const oauthResult = await handler.exchangeCode(code);
+    const oauthResult = await handler.exchangeCode(cleanCode, stateRedirectUri);
     const profile = await handler.fetchProfile(oauthResult.accessToken);
 
     // Check if account already exists in this workspace
@@ -194,13 +301,39 @@ export class SocialService {
       }),
     );
 
+    // Emit event for automated email dispatch
+    this.eventEmitter.emit('social.connected', {
+      userId,
+      platform: platform.toUpperCase(),
+      accountName: profile.name,
+      workspaceId,
+    });
+
     return account;
   }
 
   async getConnectedAccounts(
     workspaceId?: string,
     userId?: string,
+    userRole?: string,
   ): Promise<ConnectedAccount[]> {
+    console.log(
+      `[SocialService] getConnectedAccounts called. workspaceId: ${workspaceId}, userId: ${userId}, userRole: ${userRole}`,
+    );
+
+    const isAdmin = userRole === 'SUPER_ADMIN' || userRole === 'ADMIN';
+
+    if (isAdmin && workspaceId) {
+      const accounts = await this.accountRepository.find({
+        where: { workspaceId },
+        order: { created_at: 'DESC' },
+      });
+      console.log(
+        `[SocialService] Admin access: found ${accounts.length} accounts for workspace: ${workspaceId}`,
+      );
+      return accounts;
+    }
+
     let userWorkspaceIds: string[] = [];
 
     if (userId) {
@@ -209,8 +342,10 @@ export class SocialService {
         select: ['workspaceId'],
       });
       userWorkspaceIds = memberships.map((m) => m.workspaceId);
+      console.log(`[SocialService] Found userWorkspaceIds:`, userWorkspaceIds);
 
-      if (userWorkspaceIds.length === 0) {
+      if (userWorkspaceIds.length === 0 && !isAdmin) {
+        console.warn(`[SocialService] No workspace memberships found for user: ${userId}`);
         return [];
       }
     }
@@ -218,21 +353,34 @@ export class SocialService {
     if (workspaceId) {
       if (
         userWorkspaceIds.length > 0 &&
-        !userWorkspaceIds.includes(workspaceId)
+        !userWorkspaceIds.includes(workspaceId) &&
+        !isAdmin
       ) {
+        console.warn(
+          `[SocialService] Workspace ${workspaceId} not in user workspace list ${JSON.stringify(userWorkspaceIds)}`,
+        );
         return [];
       }
-      return this.accountRepository.find({
+      const accounts = await this.accountRepository.find({
         where: { workspaceId },
         order: { created_at: 'DESC' },
       });
+      console.log(
+        `[SocialService] Returning ${accounts.length} accounts for workspace: ${workspaceId}`,
+      );
+      return accounts;
     }
 
     if (userWorkspaceIds.length > 0) {
-      return this.accountRepository.find({
+      const accounts = await this.accountRepository.find({
         where: { workspaceId: In(userWorkspaceIds) },
         order: { created_at: 'DESC' },
       });
+      console.log(
+        `[SocialService] Returning ${accounts.length} accounts across workspaces:`,
+        userWorkspaceIds,
+      );
+      return accounts;
     }
 
     return [];
@@ -291,6 +439,14 @@ export class SocialService {
         metadata: { workspaceId, platformName: platform, accountName },
       }),
     );
+
+    // Emit event for automated email dispatch
+    this.eventEmitter.emit('social.disconnected', {
+      userId,
+      platform,
+      accountName,
+      workspaceId,
+    });
   }
 
   async syncAccount(

@@ -1,4 +1,4 @@
-import { Entity, Column, ManyToMany, JoinTable, OneToMany } from 'typeorm';
+import { Entity, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { BaseEntity } from '../../common/entities/base.entity';
 import { Role } from './role.entity';
 import type { UserSession } from './user-session.entity';
@@ -20,7 +20,7 @@ export class User extends BaseEntity {
   @Column({ name: 'phone_number', nullable: true })
   phoneNumber?: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'longtext', nullable: true })
   avatar?: string;
 
   @Column({ default: 'ACTIVE' })
@@ -41,13 +41,9 @@ export class User extends BaseEntity {
   @Column({ name: 'password_reset_expires', nullable: true })
   passwordResetExpires?: Date;
 
-  @ManyToMany(() => Role)
-  @JoinTable({
-    name: 'user_roles',
-    joinColumn: { name: 'user_id', referencedColumnName: 'id' },
-    inverseJoinColumn: { name: 'role_id', referencedColumnName: 'id' },
-  })
-  roles: Role[];
+  @ManyToOne(() => Role, (role) => role.users, { eager: false })
+  @JoinColumn({ name: 'role_id' })
+  role: Role;
 
   @OneToMany('UserSession', 'user')
   sessions: UserSession[];

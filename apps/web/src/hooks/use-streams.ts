@@ -124,7 +124,7 @@ export function useStreams(workspaceId?: string) {
     }: {
       id: string;
       workspaceId: string;
-      payload: { title?: string; description?: string; youtubeStreamKey?: string };
+      payload: { title?: string; description?: string; youtubeStreamKey?: string; customStreamKey?: string };
     }) => livestreamService.update(id, workspaceId, payload),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
@@ -163,6 +163,24 @@ export function useStreamDetails(id?: string, workspaceId?: string) {
     queryKey: queryKeys.streams.detail(id || ''),
     queryFn: () => livestreamService.getDetails(id!, workspaceId!),
     enabled: !!id && !!workspaceId,
-    refetchInterval: (query) => (query.state.data?.status === 'LIVE' ? 5000 : false),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const status = data?.status;
+      const hasPendingPlatforms = data?.platforms?.some(
+        (p: any) =>
+          p.status === 'PENDING' ||
+          p.status === 'WAITING_FOR_PLATFORM_PREVIEW' ||
+          p.status === 'CONNECTING',
+      );
+      if (
+        status === 'LIVE' ||
+        status === 'IDLE' ||
+        status === 'SCHEDULED' ||
+        hasPendingPlatforms
+      ) {
+        return 3000;
+      }
+      return false;
+    },
   });
 }

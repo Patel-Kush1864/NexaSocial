@@ -50,7 +50,10 @@ describe('Auth -> Users Module Integration', () => {
   });
 
   it('should integrate register flow between AuthService and UsersService', async () => {
-    const mockUser = createMockUser({ email: 'integration@test.com' });
+    const mockUser = createMockUser({
+      email: 'integration@test.com',
+      verificationToken: 'token-xyz',
+    });
     jest.spyOn(usersService, 'create').mockResolvedValue(mockUser as any);
     jest.spyOn(usersService, 'save').mockResolvedValue(mockUser as any);
 

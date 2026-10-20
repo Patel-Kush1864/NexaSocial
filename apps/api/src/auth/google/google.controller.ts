@@ -25,7 +25,21 @@ export class GoogleController {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     const profile = req.user;
 
+    console.log('[GoogleController] googleAuthCallback reached.');
+    console.log(
+      '[GoogleController] Profile received:',
+      profile
+        ? {
+            id: profile.googleId,
+            email: profile.email,
+            name: `${profile.firstName} ${profile.lastName}`.trim(),
+          }
+        : null,
+    );
+    console.log('[GoogleController] queryWorkspaceId:', queryWorkspaceId, 'stateStr:', stateStr);
+
     if (!profile) {
+      console.error('[GoogleController] Google authentication failed: No profile found in request');
       return res.redirect(
         `${frontendUrl}/social?error=${encodeURIComponent('Google authentication failed')}`,
       );
@@ -40,16 +54,22 @@ export class GoogleController {
         if (decoded.workspaceId) {
           workspaceId = decoded.workspaceId;
         }
-      } catch {
-        // ignore state parse errors
+      } catch (err) {
+        console.warn('[GoogleController] Failed to parse state parameter:', err);
       }
     }
 
+    console.log('[GoogleController] Resolved workspaceId for channel:', workspaceId);
+
     try {
-      await this.googleService.handleGoogleCallback(profile, workspaceId);
+      const account = await this.googleService.handleGoogleCallback(profile, workspaceId);
+      console.log(
+        `[GoogleController] Successfully saved YouTube account '${account.name}' (ID: ${account.id}) for workspace: ${account.workspaceId}`,
+      );
       return res.redirect(`${frontendUrl}/social?connected=youtube`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      console.error('[GoogleController] Error in handleGoogleCallback:', msg, err);
       return res.redirect(
         `${frontendUrl}/social?error=${encodeURIComponent(msg || 'Google OAuth callback failed')}`,
       );

@@ -103,7 +103,7 @@ export default function NewStreamPage() {
               <Label>Select Broadcasting Destinations</Label>
               {accounts.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  No connected social accounts found in this workspace. Please connect a YouTube or Twitch account first.
+                  No connected social accounts found in this workspace. Please connect a social account first.
                 </p>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -141,6 +141,19 @@ export default function NewStreamPage() {
                   })}
                 </div>
               )}
+
+              {accounts.some((acc) => selectedPlatformIds.includes(acc.id) && acc.platform === 'INSTAGRAM') && (
+                <div className="p-4 rounded-xl bg-linear-to-r from-pink-950/30 via-purple-950/20 to-black/30 border border-pink-500/30 text-xs space-y-2 mt-3">
+                  <div className="flex items-center gap-2 font-bold text-pink-300">
+                    <span className="text-base">📸</span>
+                    Instagram Live Streaming Note (Live Producer Mode)
+                  </div>
+                  <p className="text-zinc-300 leading-relaxed text-[11px]">
+                    Desktop streaming to Instagram officially requires using <strong>Instagram Live Producer</strong>. Once your Stream Studio is created, you will configure your RTMPS Stream Key, transmit your video feed, and complete the live confirmation.
+                  </p>
+                </div>
+              )}
+
               {form.formState.errors.platformAccountIds && (
                 <p className="text-xs text-destructive">
                   {form.formState.errors.platformAccountIds.message}

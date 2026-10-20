@@ -83,7 +83,7 @@ export function StreamsPage() {
         <EmptyState
           icon={Radio}
           title="No Live Streams Found"
-          description="Create your first stream session to start broadcasting simultaneously to YouTube, Twitch, Facebook, and more."
+          description="Create your first stream session to start broadcasting simultaneously to YouTube, Facebook, Instagram, and X."
         >
           <Button
             asChild

@@ -18,8 +18,13 @@ import { CurrentUser as CurrentUserType } from '../../auth/interfaces/current-us
 import { WorkspaceRoleGuard } from '../../workspaces/guards/workspace-role.guard';
 import { RequireWorkspaceRole } from '../../workspaces/decorators/workspace-role.decorator';
 import { WorkspaceRole } from '../../workspace-members/entities/workspace-member.entity';
+import { SubscriptionGuard } from '../../subscriptions/guards/subscription.guard';
+import { SkipSubscriptionCheck } from '../../subscriptions/decorators/skip-subscription-check.decorator';
+
+import { Public } from '../../auth/decorators/public.decorator';
 
 @Controller('social')
+@UseGuards(JwtAuthGuard, SubscriptionGuard)
 export class SocialController {
   constructor(private readonly socialService: SocialService) {}
 
@@ -49,14 +54,31 @@ export class SocialController {
   }
 
   // OAuth Redirect Callback (Public)
+  @Public()
+  @SkipSubscriptionCheck()
   @Get('callback/:platform')
   async callback(
     @Param('platform') platform: string,
     @Query('code') code: string,
     @Query('state') state: string,
+    @Query('error') error: string,
+    @Query('error_description') errorDescription: string,
+    @Query('error_reason') errorReason: string,
     @Res() res: Response,
   ) {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+
+    if (error) {
+      const errorMsg =
+        errorDescription ||
+        errorReason ||
+        error ||
+        'OAuth authorization cancelled or failed';
+      return res.redirect(
+        `${frontendUrl}/social?error=${encodeURIComponent(errorMsg)}`,
+      );
+    }
+
     if (!code || !state) {
       return res.redirect(
         `${frontendUrl}/social?error=${encodeURIComponent(
@@ -80,12 +102,20 @@ export class SocialController {
   }
 
   @Get('accounts')
-  @UseGuards(JwtAuthGuard)
   async getConnectedAccounts(
     @CurrentUser() user: CurrentUserType,
     @Query('workspaceId') workspaceId?: string,
   ) {
-    return this.socialService.getConnectedAccounts(workspaceId, user?.id);
+    console.log(
+      `[SocialController] GET /social/accounts requested by user: ${user?.id} (${user?.email}), role: ${user?.role}, workspaceId: ${workspaceId}`,
+    );
+    const accounts = await this.socialService.getConnectedAccounts(
+      workspaceId,
+      user?.id,
+      user?.role,
+    );
+    console.log(`[SocialController] Returning ${accounts.length} connected accounts.`);
+    return accounts;
   }
 
   @Get('accounts/:accountId')

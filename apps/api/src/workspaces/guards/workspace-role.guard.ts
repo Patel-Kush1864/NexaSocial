@@ -47,9 +47,16 @@ export class WorkspaceRoleGuard implements CanActivate {
       (request.params.id as string);
 
     if (!workspaceId) {
+      if (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN') {
+        return true;
+      }
       throw new ForbiddenException(
         'Workspace context (x-workspace-id header or path ID) is missing',
       );
+    }
+
+    if (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN') {
+      return true; // Platform admins can access workspace routes without being explicit members
     }
 
     // Query membership

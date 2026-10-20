@@ -27,11 +27,16 @@ export const validationSchema = Joi.object({
   JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
 
   // Mail
-  MAIL_HOST: Joi.string().default('localhost'),
+  MAIL_HOST: Joi.string().default('smtp.gmail.com'),
   MAIL_PORT: Joi.number().port().default(587),
+  MAIL_SECURE: Joi.string().valid('true', 'false').default('false'),
   MAIL_USER: Joi.string().allow('').optional(),
   MAIL_PASSWORD: Joi.string().allow('').optional(),
-  MAIL_FROM: Joi.string().default('noreply@nexasocial.com'),
+  MAIL_FROM: Joi.string().default('nexasocial101@gmail.com'),
+  MAIL_FROM_NAME: Joi.string().default('NexaSocial'),
+  MAIL_FROM_EMAIL: Joi.string().email().optional(),
+  API_URL: Joi.string().uri().allow('').optional(),
+  FRONTEND_URL: Joi.string().uri().allow('').optional(),
 
   // Redis
   REDIS_HOST: Joi.string().default('localhost'),
@@ -54,6 +59,11 @@ export const validationSchema = Joi.object({
   FACEBOOK_CALLBACK_URL: Joi.string().uri().allow('').optional(),
   FACEBOOK_REDIRECT_URI: Joi.string().uri().allow('').optional(),
   FACEBOOK_GRAPH_VERSION: Joi.string().default('v23.0'),
+
+  // Instagram
+  INSTAGRAM_CLIENT_ID: Joi.string().allow('').optional(),
+  INSTAGRAM_CLIENT_SECRET: Joi.string().allow('').optional(),
+  INSTAGRAM_REDIRECT_URI: Joi.string().uri().allow('').optional(),
 
   // Google OAuth
   GOOGLE_CLIENT_ID: Joi.string().allow('').optional(),

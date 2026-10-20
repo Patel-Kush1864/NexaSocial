@@ -15,9 +15,10 @@ import { LinkedinService } from '../../../src/social/platforms/linkedin/linkedin
 import { TwitterService } from '../../../src/social/platforms/twitter/twitter.service';
 import { TwitchService } from '../../../src/social/platforms/twitch/twitch.service';
 import { TiktokService } from '../../../src/social/platforms/tiktok/tiktok.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { createMockRepository } from '../../mocks/repository.mock';
 import { createMockSocialAccount } from '../../fixtures/social.fixture';
-import { NotFoundException } from '@nestjs/common';
+import { NotFoundException, BadRequestException } from '@nestjs/common';
 
 describe('SocialService (Unit & OAuth Platform Testing)', () => {
   let socialService: SocialService;
@@ -53,6 +54,7 @@ describe('SocialService (Unit & OAuth Platform Testing)', () => {
           useValue: { canConnectAccount: jest.fn().mockResolvedValue(true) },
         },
         { provide: LoggerServiceWrapper, useValue: { log: jest.fn() } },
+        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         {
           provide: YoutubeService,
           useValue: { getAuthUrl: jest.fn(), handleCallback: jest.fn() },
@@ -119,6 +121,91 @@ describe('SocialService (Unit & OAuth Platform Testing)', () => {
         'user-1',
       );
       expect(accountRepo.remove).toHaveBeenCalled();
+    });
+  });
+
+  describe('handleCallback', () => {
+    it('should throw BadRequestException if code is missing or empty', async () => {
+      await expect(
+        socialService.handleCallback('INSTAGRAM', '', 'valid_state'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if state is missing or empty', async () => {
+      await expect(
+        socialService.handleCallback('INSTAGRAM', 'valid_code', ''),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if state is invalid JSON', async () => {
+      const invalidState = Buffer.from('not_valid_json').toString('base64');
+      await expect(
+        socialService.handleCallback('INSTAGRAM', 'valid_code', invalidState),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if state platform does not match callback platform', async () => {
+      const stateObj = {
+        workspaceId: 'ws-123',
+        userId: 'usr-456',
+        platform: 'FACEBOOK',
+        timestamp: Date.now(),
+      };
+      const stateStr = Buffer.from(JSON.stringify(stateObj)).toString('base64');
+
+      await expect(
+        socialService.handleCallback('INSTAGRAM', 'valid_code', stateStr),
+      ).rejects.toThrow(/platform mismatch/i);
+    });
+
+    it('should throw BadRequestException if state is expired (> 15 minutes)', async () => {
+      const stateObj = {
+        workspaceId: 'ws-123',
+        userId: 'usr-456',
+        platform: 'INSTAGRAM',
+        timestamp: Date.now() - 20 * 60 * 1000, // 20 minutes ago
+      };
+      const stateStr = Buffer.from(JSON.stringify(stateObj)).toString('base64');
+
+      await expect(
+        socialService.handleCallback('INSTAGRAM', 'valid_code', stateStr),
+      ).rejects.toThrow(/expired/i);
+    });
+
+    it('should reject already consumed authorization code (replay prevention)', async () => {
+      const instagramService = (socialService as any).instagramService;
+      instagramService.exchangeCode = jest.fn().mockResolvedValue({
+        accessToken: 'mock_token',
+        expiresIn: 3600,
+      });
+      instagramService.fetchProfile = jest.fn().mockResolvedValue({
+        platformUserId: 'ig_123',
+        name: 'IG Test User',
+      });
+      accountRepo.findOne.mockResolvedValue(null);
+      accountRepo.create.mockReturnValue({ id: 'acc_1' });
+      accountRepo.save.mockResolvedValue({ id: 'acc_1' });
+      tokenRepo.create.mockReturnValue({ id: 'tok_1' });
+      tokenRepo.save.mockResolvedValue({ id: 'tok_1' });
+
+      const stateObj = {
+        workspaceId: 'ws-123',
+        userId: 'usr-456',
+        platform: 'INSTAGRAM',
+        timestamp: Date.now(),
+      };
+      const stateStr = Buffer.from(JSON.stringify(stateObj)).toString('base64');
+      const reuseCode = 'unique_one_time_code_xyz';
+
+      // First call succeeds
+      await socialService.handleCallback('INSTAGRAM', reuseCode, stateStr);
+
+      // Second call with same code must be rejected without calling exchangeCode again
+      await expect(
+        socialService.handleCallback('INSTAGRAM', reuseCode, stateStr),
+      ).rejects.toThrow(/already been consumed/i);
+
+      expect(instagramService.exchangeCode).toHaveBeenCalledTimes(1);
     });
   });
 });

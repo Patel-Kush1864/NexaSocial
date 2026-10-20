@@ -10,7 +10,7 @@ export class UsageLimitService {
   constructor(
     private readonly subscriptionsService: SubscriptionsService,
     private readonly dataSource: DataSource,
-  ) {}
+  ) { }
 
   private async getTableCount(
     tableName: string,
@@ -109,11 +109,13 @@ export class UsageLimitService {
 
   async canCreateStream(ownerId: string): Promise<boolean> {
     const sub = await this.subscriptionsService.getCurrentSubscription(ownerId);
-    let limit = 2; // Default limit
-    if (sub.plan.name === 'Starter') limit = 10;
-    if (sub.plan.name === 'Professional') limit = 100;
-    if (sub.plan.name === 'Enterprise') limit = -1;
+    if (!sub.plan.features?.liveStreaming) {
+      return false;
+    }
 
+    const limit =
+      sub.plan.features.maxStreams ??
+      (sub.plan.features.liveStreaming ? 100 : 0);
     if (limit === -1) return true;
 
     try {
@@ -128,5 +130,15 @@ export class UsageLimitService {
     } catch {
       return true;
     }
+  }
+
+  async canSchedulePost(userId: string): Promise<boolean> {
+    const sub = await this.subscriptionsService.getCurrentSubscription(userId);
+    return !!sub.plan.features?.streamScheduling;
+  }
+
+  async canUseMediaLibrary(userId: string): Promise<boolean> {
+    const sub = await this.subscriptionsService.getCurrentSubscription(userId);
+    return sub.plan.features?.mediaLibrary ?? true;
   }
 }

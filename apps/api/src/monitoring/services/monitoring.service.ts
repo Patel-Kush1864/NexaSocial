@@ -52,12 +52,40 @@ export class MonitoringService {
     });
 
     for (const stream of activeStreams) {
+      // Allow newly started streams a 3-minute grace period to warm up and establish connections
+      const startedAt = stream.startedAt
+        ? new Date(stream.startedAt).getTime()
+        : 0;
+      const streamAgeMs = Date.now() - startedAt;
+      if (streamAgeMs < 3 * 60 * 1000) {
+        continue;
+      }
+
+      if (!stream.platforms || stream.platforms.length === 0) {
+        continue;
+      }
+
       let allEnded = true;
       for (const platform of stream.platforms) {
+        // If a platform is in progress (waiting preview or pending), it has NOT ended!
         if (
-          platform.status !== StreamPlatformStatus.LIVE ||
-          !platform.platformStreamId
+          platform.status ===
+            StreamPlatformStatus.WAITING_FOR_PLATFORM_PREVIEW ||
+          platform.status === StreamPlatformStatus.PENDING
         ) {
+          allEnded = false;
+          continue;
+        }
+
+        if (platform.status !== StreamPlatformStatus.LIVE) {
+          if (platform.status !== StreamPlatformStatus.ENDED) {
+            allEnded = false;
+          }
+          continue;
+        }
+
+        if (!platform.platformStreamId) {
+          allEnded = false;
           continue;
         }
 
@@ -65,13 +93,19 @@ export class MonitoringService {
           const token = await this.tokenRepository.findOne({
             where: { connectedAccountId: platform.connectedAccountId },
           });
-          if (!token) continue;
+          if (!token) {
+            allEnded = false;
+            continue;
+          }
 
           const decryptedToken = decrypt(token.accessToken);
           const adapter = this.getPlatformAdapter(
             platform.connectedAccount?.platformName || '',
           );
-          if (!adapter) continue;
+          if (!adapter) {
+            allEnded = false;
+            continue;
+          }
 
           const status = await adapter.getStatus(
             decryptedToken,
@@ -80,7 +114,9 @@ export class MonitoringService {
           if (
             status === 'complete' ||
             status === 'ended' ||
-            status === 'offline'
+            status === 'offline' ||
+            status === 'revoked' ||
+            status === 'abandoned'
           ) {
             platform.status = StreamPlatformStatus.ENDED;
             await this.streamPlatformRepository.save(platform);

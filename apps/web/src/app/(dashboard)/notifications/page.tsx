@@ -44,7 +44,7 @@ export function NotificationsPage() {
         }
       />
 
-      {notifications.length === 0 ? (
+      {!Array.isArray(notifications) || notifications.length === 0 ? (
         <EmptyState
           icon={Bell}
           title="All Caught Up!"

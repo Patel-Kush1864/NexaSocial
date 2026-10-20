@@ -46,10 +46,9 @@ export function LandingFooter() {
           <div className="font-extrabold text-foreground text-xs uppercase tracking-wider font-mono">Destinations</div>
           <ul className="space-y-2 font-medium">
             <li><a href="#platforms" className="hover-un hover:text-foreground transition-colors">YouTube Live</a></li>
-            <li><a href="#platforms" className="hover-un hover:text-foreground transition-colors">Twitch Studio</a></li>
             <li><a href="#platforms" className="hover-un hover:text-foreground transition-colors">Facebook Live</a></li>
+            <li><a href="#platforms" className="hover-un hover:text-foreground transition-colors">Instagram Live</a></li>
             <li><a href="#platforms" className="hover-un hover:text-foreground transition-colors">X / Twitter Spaces</a></li>
-            <li><a href="#platforms" className="hover-un hover:text-foreground transition-colors">LinkedIn Live</a></li>
           </ul>
         </div>
 

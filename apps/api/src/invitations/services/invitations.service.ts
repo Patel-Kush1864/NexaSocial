@@ -36,7 +36,7 @@ export class InvitationsService {
     private readonly mailService: MailService,
     private readonly usageLimitService: UsageLimitService,
     private readonly loggerService: LoggerServiceWrapper,
-  ) {}
+  ) { }
 
   async invite(
     workspaceId: string,
@@ -103,11 +103,21 @@ export class InvitationsService {
     await this.invitationRepository.save(invitation);
 
     // 5. Send Invite Email
-    const acceptLink = `http://localhost:3000/invitations/accept?token=${token}`;
-    await this.mailService.sendMail({
-      to: dto.email,
-      subject: `Invitation to join workspace "${workspace.name}"`,
-      text: `You have been invited to join the workspace "${workspace.name}" as a ${dto.role}.\n\nClick the link to accept:\n${acceptLink}`,
+    let inviterName = 'A team administrator';
+    const inviter = await this.usersRepository.findById(invitedById);
+    if (inviter) {
+      inviterName =
+        `${inviter.firstName || ''} ${inviter.lastName || ''}`.trim() ||
+        inviter.email;
+    }
+
+    await this.mailService.sendWorkspaceInvitation({
+      email: dto.email,
+      inviterName,
+      workspaceName: workspace.name,
+      role: dto.role,
+      token,
+      invitationId: invitation.id,
     });
 
     this.loggerService.log(
@@ -219,6 +229,37 @@ export class InvitationsService {
       }),
     );
 
+    // Notify inviter that invitation was accepted
+    try {
+      const inviter = await this.usersRepository.findById(invitation.invitedById);
+      const acceptedUser = await this.usersRepository.findById(userId);
+      const workspace = await this.workspaceRepository.findOne({
+        where: { id: invitation.workspaceId },
+      });
+      if (inviter?.email && acceptedUser) {
+        const inviterName =
+          `${inviter.firstName || ''} ${inviter.lastName || ''}`.trim() ||
+          inviter.email;
+        const acceptedUserName =
+          `${acceptedUser.firstName || ''} ${acceptedUser.lastName || ''}`.trim() ||
+          acceptedUser.email;
+        await this.mailService.sendWorkspaceInvitationAccepted({
+          inviterUserId: inviter.id,
+          inviterName,
+          inviterEmail: inviter.email,
+          acceptedUserName,
+          acceptedUserEmail: acceptedUser.email,
+          workspaceName: workspace?.name || 'Workspace',
+          role: invitation.role,
+        });
+      }
+    } catch (e: any) {
+      this.loggerService.warn(
+        `Failed to send invitation accepted email: ${e.message}`,
+        'InvitationsService',
+      );
+    }
+
     return { success: true, workspaceId: invitation.workspaceId };
   }
 
@@ -253,5 +294,84 @@ export class InvitationsService {
     );
 
     return { success: true };
+  }
+
+  async getPendingInvitations(workspaceId: string): Promise<Invitation[]> {
+    return this.invitationRepository.find({
+      where: { workspaceId, status: InvitationStatus.PENDING },
+      relations: ['invitedBy'],
+    });
+  }
+
+  async resendInvitation(
+    workspaceId: string,
+    invitationId: string,
+    performerId: string,
+  ): Promise<Invitation> {
+    const invitation = await this.invitationRepository.findOne({
+      where: {
+        id: invitationId,
+        workspaceId,
+        status: InvitationStatus.PENDING,
+      },
+    });
+
+    if (!invitation) {
+      throw new NotFoundException('Pending invitation not found');
+    }
+
+    const workspace = await this.workspaceRepository.findOne({
+      where: { id: workspaceId },
+    });
+    if (!workspace) {
+      throw new NotFoundException('Workspace not found');
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    invitation.token = token;
+    invitation.expiresAt = expiresAt;
+
+    await this.invitationRepository.save(invitation);
+
+    const acceptLink = `http://localhost:3000/invitations/accept?token=${token}`;
+    await this.mailService.sendMail({
+      to: invitation.email,
+      subject: `Invitation to join workspace "${workspace.name}" (Reminder)`,
+      text: `You have been invited to join the workspace "${workspace.name}" as a ${invitation.role}.\n\nClick the link to accept:\n${acceptLink}`,
+    });
+
+    this.loggerService.log(
+      `Invitation to ${invitation.email} resent for Workspace ${workspaceId} by User ${performerId}`,
+      'InvitationsService',
+    );
+
+    return invitation;
+  }
+
+  async cancelInvitation(
+    workspaceId: string,
+    invitationId: string,
+    performerId: string,
+  ): Promise<void> {
+    const invitation = await this.invitationRepository.findOne({
+      where: {
+        id: invitationId,
+        workspaceId,
+        status: InvitationStatus.PENDING,
+      },
+    });
+
+    if (!invitation) {
+      throw new NotFoundException('Pending invitation not found');
+    }
+
+    await this.invitationRepository.remove(invitation);
+
+    this.loggerService.log(
+      `Invitation to ${invitation.email} cancelled for Workspace ${workspaceId} by User ${performerId}`,
+      'InvitationsService',
+    );
   }
 }

@@ -128,8 +128,11 @@ export const changePasswordSchema = z
     newPassword: z
       .string()
       .min(8, 'Password must be at least 8 characters')
-      .regex(/[A-Z]/, 'Must contain at least one uppercase letter')
-      .regex(/[0-9]/, 'Must contain at least one number'),
+      .max(30, 'Password must be at most 30 characters')
+      .regex(/[A-Z]/, 'Must contain at least 1 uppercase letter')
+      .regex(/[a-z]/, 'Must contain at least 1 lowercase letter')
+      .regex(/[0-9]/, 'Must contain at least 1 number')
+      .regex(/[^A-Za-z0-9]/, 'Must contain at least 1 special character'),
     confirmNewPassword: z.string(),
   })
   .refine((data) => data.newPassword === data.confirmNewPassword, {

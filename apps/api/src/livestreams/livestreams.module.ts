@@ -15,6 +15,7 @@ import { LiveStreamEventsListener } from './listeners/livestream-events.listener
 import { LiveStreamSchedulerService } from './scheduler/livestream-scheduler.service';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { LoggerModule } from '../logger/logger.module';
+import { MailModule } from '../mail/mail.module';
 
 import { FFmpegService } from './services/ffmpeg.service';
 import { MediaServerService } from './services/media-server.service';
@@ -24,6 +25,7 @@ import { YoutubeAdapter } from './adapters/youtube.adapter';
 import { FacebookAdapter } from './adapters/facebook.adapter';
 import { TwitchAdapter } from './adapters/twitch.adapter';
 import { LinkedinAdapter } from './adapters/linkedin.adapter';
+import { InstagramAdapter } from './adapters/instagram.adapter';
 
 @Module({
   imports: [
@@ -38,6 +40,7 @@ import { LinkedinAdapter } from './adapters/linkedin.adapter';
     ]),
     SubscriptionsModule,
     LoggerModule,
+    MailModule,
   ],
   controllers: [LiveStreamsController],
   providers: [
@@ -52,6 +55,7 @@ import { LinkedinAdapter } from './adapters/linkedin.adapter';
     FacebookAdapter,
     TwitchAdapter,
     LinkedinAdapter,
+    InstagramAdapter,
   ],
   exports: [
     LiveStreamsService,
@@ -64,6 +68,7 @@ import { LinkedinAdapter } from './adapters/linkedin.adapter';
     FacebookAdapter,
     TwitchAdapter,
     LinkedinAdapter,
+    InstagramAdapter,
     TypeOrmModule,
   ],
 })

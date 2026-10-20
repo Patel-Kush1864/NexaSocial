@@ -12,6 +12,7 @@ import {
   Zap,
   Layers,
   Bot,
+  LucideIcon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,7 +23,7 @@ interface TrackStep {
   title: string;
   subtitle: string;
   description: string;
-  icon: any;
+  icon: LucideIcon;
   color: string;
   accentBg: string;
   highlights: string[];
@@ -55,7 +56,7 @@ const steps: TrackStep[] = [
       heading: 'AI Post Generator Engine',
       metricLabel: 'Script Generation Speed',
       metricVal: '0.8s',
-      statusText: 'Optimized for TikTok, Reels & YouTube Shorts',
+      statusText: 'Optimized for Instagram Reels & YouTube Shorts',
       tags: ['GPT-4o Vision', 'Viral Hook Score: 98/100', 'Auto Hashtags'],
     },
   },
@@ -63,9 +64,9 @@ const steps: TrackStep[] = [
     id: 'rtmp-streaming',
     stepNumber: '02',
     title: '1080p60 Multi-Destination Live Stream',
-    subtitle: 'One RTMP stream ingestion broadcast seamlessly to 7+ networks',
+    subtitle: 'One RTMP stream ingestion broadcast seamlessly to 4+ networks',
     description:
-      'Eliminate bandwidth constraints. Send a single stream from OBS, vMix, or mobile and our cloud relays to YouTube, Twitch, TikTok, and Facebook simultaneously.',
+      'Eliminate bandwidth constraints. Send a single stream from OBS, vMix, or mobile and our cloud relays to YouTube, Facebook, Instagram, and X simultaneously.',
     icon: Radio,
     color: 'from-indigo-500 to-cyan-500',
     accentBg: 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300',
@@ -78,7 +79,7 @@ const steps: TrackStep[] = [
       heading: 'RTMP Ingestion Relay Engine',
       metricLabel: 'Active Destination Bitrate',
       metricVal: '6,000 Kbps',
-      statusText: '7/7 Edge Nodes Healthy • Zero Dropped Frames',
+      statusText: '4/4 Edge Nodes Healthy • Zero Dropped Frames',
       tags: ['OBS/vMix Support', '1080p 60fps', 'Cloud DVR Auto-Save'],
     },
   },
@@ -101,7 +102,7 @@ const steps: TrackStep[] = [
       heading: 'AI Peak Time Dispatcher',
       metricLabel: 'Scheduled Posts Active',
       metricVal: '148 Posts',
-      statusText: 'Next dispatch in 12 mins to LinkedIn & X',
+      statusText: 'Next dispatch in 12 mins to Instagram & X',
       tags: ['Auto Timezone Shift', 'Drag & Drop Matrix', 'Bulk Import'],
     },
   },

@@ -96,4 +96,33 @@ export class RazorpayGateway implements PaymentGateway {
       return false;
     }
   }
+
+  verifyPaymentSignature(
+    orderId: string,
+    paymentId: string,
+    signature: string,
+  ): boolean {
+    try {
+      const keySecret =
+        this.configService.get<string>('RAZORPAY_KEY_SECRET') ||
+        process.env.RAZORPAY_KEY_SECRET;
+      if (!keySecret || keySecret === 'rzp_test_secret_dummy') {
+        this.logger.log(
+          'Skipping verification: using dummy Razorpay key secret',
+        );
+        return true;
+      }
+      const expectedSignature = crypto
+        .createHmac('sha256', keySecret)
+        .update(`${orderId}|${paymentId}`)
+        .digest('hex');
+
+      return expectedSignature === signature;
+    } catch (error: any) {
+      this.logger.error(
+        `Razorpay checkout signature verification failed: ${error.message}`,
+      );
+      return false;
+    }
+  }
 }

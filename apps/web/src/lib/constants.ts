@@ -110,33 +110,12 @@ export const PLATFORM_CONFIG: Record<
     icon: '📸',
     gradient: 'from-pink-500 via-purple-500 to-orange-500',
   },
-  LINKEDIN: {
-    name: 'LinkedIn',
-    color: '#0A66C2',
-    bgColor: 'rgba(10, 102, 194, 0.1)',
-    icon: '💼',
-    gradient: 'from-blue-600 to-blue-800',
-  },
   X: {
     name: 'X (Twitter)',
     color: '#000000',
     bgColor: 'rgba(0, 0, 0, 0.1)',
     icon: '𝕏',
     gradient: 'from-gray-700 to-gray-900',
-  },
-  TWITCH: {
-    name: 'Twitch',
-    color: '#9146FF',
-    bgColor: 'rgba(145, 70, 255, 0.1)',
-    icon: '🎮',
-    gradient: 'from-purple-500 to-purple-700',
-  },
-  TIKTOK: {
-    name: 'TikTok',
-    color: '#000000',
-    bgColor: 'rgba(0, 0, 0, 0.1)',
-    icon: '🎵',
-    gradient: 'from-pink-500 via-black to-cyan-500',
   },
 };
 
@@ -191,26 +170,6 @@ export const PLAN_TIER_CONFIG = {
   },
 } as const;
 
-// ── Navigation Items ──────────────────────
-export const DASHBOARD_NAV_ITEMS = [
-  { label: 'Dashboard', href: '/dashboard', icon: 'LayoutDashboard' },
-  { label: 'Social Accounts', href: '/social', icon: 'Share2' },
-  { label: 'Live Streams', href: '/streams', icon: 'Radio' },
-  { label: 'Analytics', href: '/dashboard/analytics', icon: 'BarChart3' },
-  { label: 'Workspaces', href: '/workspaces', icon: 'Building2' },
-  { label: 'Notifications', href: '/notifications', icon: 'Bell' },
-  { label: 'Billing', href: '/billing', icon: 'CreditCard' },
-  { label: 'Settings', href: '/settings', icon: 'Settings' },
-] as const;
-
-export const ADMIN_NAV_ITEMS = [
-  { label: 'Overview', href: '/admin', icon: 'LayoutDashboard' },
-  { label: 'Users', href: '/admin/users', icon: 'Users' },
-  { label: 'Workspaces', href: '/admin/workspaces', icon: 'Building2' },
-  { label: 'Plans', href: '/admin/plans', icon: 'Package' },
-  { label: 'Payments', href: '/admin/payments', icon: 'CreditCard' },
-  { label: 'System Health', href: '/admin/system', icon: 'Activity' },
-] as const;
 
 // ── App Config ────────────────────────────
 export const APP_CONFIG = {

@@ -20,17 +20,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload): Promise<CurrentUser> {
-    const isSessionValid = await this.authService.validateSession(
+    const authData = await this.authService.validateUserFromSession(
       payload.sessionId,
+      payload.id,
     );
-    if (!isSessionValid) {
-      throw new UnauthorizedException('Session has been revoked');
+
+    if (!authData) {
+      throw new UnauthorizedException('Session revoked or user is inactive');
     }
 
     return {
-      id: payload.id,
-      email: payload.email,
-      role: payload.role,
+      id: authData.user.id,
+      email: authData.user.email,
+      role: authData.user.role?.name || 'CREATOR',
+      permissions: authData.permissions,
       sessionId: payload.sessionId,
     };
   }

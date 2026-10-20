@@ -17,15 +17,17 @@ export const userService = {
     bio?: string;
     timezone?: string;
   }): Promise<User> {
-    const { data } = await apiClient.put<User>('/users/profile', payload);
+    // Backend only supports firstName and lastName for now
+    const { firstName, lastName } = payload;
+    const { data } = await apiClient.put<User>('/users/profile', { firstName, lastName });
     return data;
   },
 
   async uploadAvatar(file: File): Promise<User> {
     const formData = new FormData();
-    formData.append('avatar', file);
+    formData.append('file', file);
     const { data } = await apiClient.post<User>(
-      '/users/profile/avatar',
+      '/users/avatar',
       formData,
       {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -38,8 +40,8 @@ export const userService = {
     currentPassword: string;
     newPassword: string;
   }): Promise<{ message: string }> {
-    const { data } = await apiClient.post<{ message: string }>(
-      '/users/profile/password',
+    const { data } = await apiClient.put<{ message: string }>(
+      '/users/change-password',
       payload,
     );
     return data;

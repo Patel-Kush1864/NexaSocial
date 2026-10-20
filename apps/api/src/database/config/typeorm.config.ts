@@ -26,7 +26,7 @@ export const getTypeOrmConfig = (): TypeOrmModuleOptions => {
       process.env.APP_ENV === 'development' ||
       process.env.NODE_ENV !== 'production' ||
       process.env.TYPEORM_SYNCHRONIZE === 'true',
-    logging: true,
+    logging: ['error', 'warn'],
     entities: [__dirname + '/../../**/*.entity{.ts,.js}'],
     migrations: [__dirname + '/../migrations/*{.ts,.js}'],
     subscribers: [__dirname + '/../subscribers/*{.ts,.js}'],

@@ -115,7 +115,7 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  getProfile(@CurrentUser() user: CurrentUserType): CurrentUserType {
-    return user;
+  async getProfile(@CurrentUser() user: CurrentUserType) {
+    return this.authService.getProfile(user.id, user.sessionId);
   }
 }

@@ -14,7 +14,7 @@ export class SocialAccount extends BaseEntity {
   userId: string;
 
   @Column({ length: 50 })
-  provider: string; // e.g. 'facebook', 'youtube', 'linkedin', 'twitch', 'instagram'
+  provider: string; // e.g. 'facebook', 'youtube', 'linkedin', 'twitch'
 
   @Column({ name: 'provider_user_id' })
   providerUserId: string;

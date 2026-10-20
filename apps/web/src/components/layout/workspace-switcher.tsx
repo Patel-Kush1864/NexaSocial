@@ -13,10 +13,32 @@ import { Button } from '@/components/ui/button';
 import { Check, ChevronsUpDown, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { CreateWorkspaceDialog } from '../dialogs/create-workspace-dialog';
+import { useAuthStore } from '@/stores/auth-store';
 
 export function WorkspaceSwitcher() {
   const { currentWorkspace, workspaces, switchWorkspace } = useWorkspace();
+  const { scope } = useAuthStore();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+
+  if (scope === 'PLATFORM') {
+    return (
+      <div className="w-full h-12 px-3 flex items-center border border-border/40 rounded-xl bg-accent/30 cursor-default">
+        <div className="flex items-center gap-3 w-full overflow-hidden">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-violet-600 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-md shadow-violet-500/20">
+            P
+          </div>
+          <div className="truncate flex-1 text-left">
+            <p className="text-xs font-bold leading-none truncate">
+              Platform
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5 truncate uppercase font-semibold tracking-wider text-violet-400">
+              All Workspaces
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>

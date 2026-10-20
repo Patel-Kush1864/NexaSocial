@@ -106,4 +106,58 @@ export const workspaceService = {
     );
     return data;
   },
+
+  async inviteMember(
+    workspaceId: string,
+    payload: { email: string; role: string },
+  ): Promise<SuccessResponse> {
+    const { data } = await apiClient.post<SuccessResponse>(
+      `/workspaces/${workspaceId}/invite`,
+      payload,
+    );
+    return data;
+  },
+
+  async getPendingInvitations(workspaceId: string): Promise<any[]> {
+    const { data } = await apiClient.get<any[]>(
+      `/workspaces/${workspaceId}/invitations`,
+    );
+    return data;
+  },
+
+  async resendInvitation(
+    workspaceId: string,
+    invitationId: string,
+  ): Promise<SuccessResponse> {
+    const { data } = await apiClient.post<SuccessResponse>(
+      `/workspaces/${workspaceId}/invitations/${invitationId}/resend`,
+    );
+    return data;
+  },
+
+  async cancelInvitation(
+    workspaceId: string,
+    invitationId: string,
+  ): Promise<SuccessResponse> {
+    const { data } = await apiClient.post<SuccessResponse>(
+      `/workspaces/${workspaceId}/invitations/${invitationId}/cancel`,
+    );
+    return data;
+  },
+
+  async acceptInvitation(token: string): Promise<{ success: boolean; workspaceId: string }> {
+    const { data } = await apiClient.post<{ success: boolean; workspaceId: string }>(
+      '/workspaces/invitations/accept',
+      { token },
+    );
+    return data;
+  },
+
+  async rejectInvitation(token: string): Promise<SuccessResponse> {
+    const { data } = await apiClient.post<SuccessResponse>(
+      '/workspaces/invitations/reject',
+      { token },
+    );
+    return data;
+  },
 };

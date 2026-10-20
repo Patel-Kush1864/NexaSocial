@@ -42,6 +42,7 @@ export class LiveStreamSchedulerProcessor implements OnModuleInit {
     );
     try {
       await this.streamsService.startScheduledStreamsBackground();
+      await this.streamsService.sendScheduledStreamRemindersBackground();
       this.logger.log('Live streams scheduler checker finished.');
     } catch (err: any) {
       this.logger.error(

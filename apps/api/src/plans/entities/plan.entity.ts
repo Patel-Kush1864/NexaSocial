@@ -6,14 +6,18 @@ export interface PlanFeatures {
   socialAccounts: number; // Limit on connected social channels (-1 for unlimited)
   teamMembers: number; // Limit on team member invitations (-1 for unlimited)
   liveStreaming: boolean; // Flag to enable/disable live streaming
+  maxStreams?: number; // Limit on live streams (-1 for unlimited, 0 if not allowed)
   analytics: boolean; // Flag to enable/disable dashboard analytics
   aiFeatures: boolean; // Flag to enable/disable AI tools
+  aiLimit?: number; // Monthly AI operations limit (-1 for unlimited)
   prioritySupport: boolean; // Flag to indicate priority support
   storageGb: number; // Limit on storage (-1 for unlimited)
   apiAccess: boolean; // Flag to enable/disable API key usage
   customBranding: boolean; // Flag to enable/disable custom branding
   streamScheduling: boolean; // Flag to enable/disable scheduling
+  maxScheduledPosts?: number; // Limit on scheduled posts (-1 for unlimited)
   multiPlatformStreaming: boolean; // Flag to stream to multiple destinations simultaneously
+  mediaLibrary?: boolean; // Flag to enable media library
 }
 
 @Entity('subscription_plans')
@@ -21,14 +25,32 @@ export class Plan extends BaseEntity {
   @Column({ unique: true })
   name: string;
 
+  @Column({ unique: true, nullable: true })
+  code: string;
+
   @Column({ type: 'text', nullable: true })
   description?: string;
 
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0.0 })
   price: number;
 
+  @Column({ default: 'INR' })
+  currency: string;
+
   @Column({ default: 'month' })
-  interval: string; // 'month', 'year'
+  interval: string; // 'month', 'year', 'quarter', 'days'
+
+  @Column({ name: 'billing_type', default: 'recurring' })
+  billingType: string; // 'recurring', 'one_time'
+
+  @Column({ name: 'duration_days', type: 'int', nullable: true })
+  durationDays?: number;
+
+  @Column({ name: 'is_popular', default: false })
+  isPopular: boolean;
+
+  @Column({ name: 'display_order', type: 'int', default: 0 })
+  displayOrder: number;
 
   @Column({ type: 'json', nullable: true })
   features: PlanFeatures;

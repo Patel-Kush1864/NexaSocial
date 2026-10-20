@@ -3,25 +3,26 @@
 import { PageHeader } from '@/components/shared/page-header';
 import { ProfileForm } from '@/components/forms/profile-form';
 import { SecurityForm } from '@/components/forms/security-form';
+import { EmailPreferencesForm } from '@/components/forms/email-preferences-form';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { User, Shield, Laptop } from 'lucide-react';
+import { User, Shield, Laptop, Mail } from 'lucide-react';
 import { useState } from 'react';
 
 export function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'sessions'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'sessions' | 'notifications'>('profile');
 
   return (
     <div className="space-y-8 max-w-4xl mx-auto">
       <PageHeader
         title="Account Settings"
-        description="Manage your personal profile, security preferences, and active sessions."
+        description="Manage your personal profile, security preferences, email alerts, and active sessions."
       />
 
       {/* Tabs Header */}
-      <div className="flex items-center gap-2 border-b border-border/40 pb-2">
+      <div className="flex items-center gap-2 border-b border-border/40 pb-2 overflow-x-auto">
         <button
           onClick={() => setActiveTab('profile')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === 'profile'
               ? 'bg-primary text-white shadow-md'
               : 'text-muted-foreground hover:bg-accent/40'
@@ -33,7 +34,7 @@ export function SettingsPage() {
 
         <button
           onClick={() => setActiveTab('security')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === 'security'
               ? 'bg-primary text-white shadow-md'
               : 'text-muted-foreground hover:bg-accent/40'
@@ -44,8 +45,20 @@ export function SettingsPage() {
         </button>
 
         <button
+          onClick={() => setActiveTab('notifications')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === 'notifications'
+              ? 'bg-primary text-white shadow-md'
+              : 'text-muted-foreground hover:bg-accent/40'
+          }`}
+        >
+          <Mail className="w-4 h-4" />
+          Email Preferences
+        </button>
+
+        <button
           onClick={() => setActiveTab('sessions')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === 'sessions'
               ? 'bg-primary text-white shadow-md'
               : 'text-muted-foreground hover:bg-accent/40'
@@ -81,6 +94,20 @@ export function SettingsPage() {
           </CardHeader>
           <CardContent>
             <SecurityForm />
+          </CardContent>
+        </Card>
+      )}
+
+      {activeTab === 'notifications' && (
+        <Card className="glass-panel border-border/50">
+          <CardHeader>
+            <CardTitle className="text-lg font-bold">Email Notification Preferences</CardTitle>
+            <CardDescription className="text-xs">
+              Configure which email notifications you receive from NexaSocial. Essential billing and security alerts cannot be disabled.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <EmailPreferencesForm />
           </CardContent>
         </Card>
       )}

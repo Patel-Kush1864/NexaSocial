@@ -9,6 +9,7 @@ export enum StreamStatus {
   LIVE = 'LIVE',
   ENDED = 'ENDED',
   CANCELLED = 'CANCELLED',
+  FAILED = 'FAILED',
 }
 
 export enum StreamVisibility {

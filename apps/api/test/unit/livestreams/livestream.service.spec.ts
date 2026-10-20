@@ -18,6 +18,7 @@ import { YoutubeAdapter } from '../../../src/livestreams/adapters/youtube.adapte
 import { FacebookAdapter } from '../../../src/livestreams/adapters/facebook.adapter';
 import { TwitchAdapter } from '../../../src/livestreams/adapters/twitch.adapter';
 import { LinkedinAdapter } from '../../../src/livestreams/adapters/linkedin.adapter';
+import { InstagramAdapter } from '../../../src/livestreams/adapters/instagram.adapter';
 import { FFmpegService } from '../../../src/livestreams/services/ffmpeg.service';
 import { MediaServerService } from '../../../src/livestreams/services/media-server.service';
 import { createMockRepository } from '../../mocks/repository.mock';
@@ -100,6 +101,16 @@ describe('LiveStreamsService (Unit)', () => {
         { provide: FacebookAdapter, useValue: { createBroadcast: jest.fn() } },
         { provide: TwitchAdapter, useValue: { createBroadcast: jest.fn() } },
         { provide: LinkedinAdapter, useValue: { createBroadcast: jest.fn() } },
+        {
+          provide: InstagramAdapter,
+          useValue: {
+            createBroadcast: jest.fn(),
+            validateIngestUrl: jest.fn().mockReturnValue(true),
+            validateStreamKey: jest.fn().mockReturnValue(true),
+            getProducerUrl: jest.fn().mockReturnValue('https://www.instagram.com/live/producer'),
+            getViewerUrl: jest.fn().mockReturnValue('https://www.instagram.com/live'),
+          },
+        },
       ],
     }).compile();
 

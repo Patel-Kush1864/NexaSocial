@@ -11,17 +11,23 @@ export class UsersRepository {
   ) {}
 
   async findById(id: string): Promise<User | null> {
-    return this.repo.findOne({ where: { id }, relations: { roles: true } });
+    return this.repo.findOne({
+      where: { id },
+      relations: { role: { permissions: true } },
+    });
   }
 
   async findByEmail(email: string): Promise<User | null> {
-    return this.repo.findOne({ where: { email }, relations: { roles: true } });
+    return this.repo.findOne({
+      where: { email },
+      relations: { role: { permissions: true } },
+    });
   }
 
   async findByPhone(phoneNumber: string): Promise<User | null> {
     return this.repo.findOne({
       where: { phoneNumber },
-      relations: { roles: true },
+      relations: { role: { permissions: true } },
     });
   }
 

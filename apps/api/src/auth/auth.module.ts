@@ -9,6 +9,7 @@ import { UserSession } from '../users/entities/user-session.entity';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { RefreshStrategy } from './strategies/refresh.strategy';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { RefreshStrategy } from './strategies/refresh.strategy';
     PassportModule,
     JwtModule.register({}),
     TypeOrmModule.forFeature([UserSession]),
+    MailModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, LocalStrategy, JwtStrategy, RefreshStrategy],

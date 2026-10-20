@@ -24,6 +24,7 @@ import { LoggerModule } from '../logger/logger.module';
 import { YoutubeService } from './platforms/youtube/youtube.service';
 import { FacebookService as LegacyFacebookService } from './platforms/facebook/facebook.service';
 import { InstagramService } from './platforms/instagram/instagram.service';
+
 import { LinkedinService } from './platforms/linkedin/linkedin.service';
 import { TwitterService } from './platforms/twitter/twitter.service';
 import { TwitchService } from './platforms/twitch/twitch.service';

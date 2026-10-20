@@ -11,10 +11,10 @@ import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Loader2, Upload, Save } from 'lucide-react';
 import { toast } from 'sonner';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export function ProfileForm() {
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
   const [isUploading, setIsUploading] = useState(false);
 
   const form = useForm<UpdateProfileFormValues>({
@@ -27,9 +27,21 @@ export function ProfileForm() {
     },
   });
 
+  useEffect(() => {
+    if (user) {
+      form.reset({
+        firstName: user.firstName || '',
+        lastName: user.lastName || '',
+        bio: user.bio || '',
+        timezone: user.timezone || 'UTC',
+      });
+    }
+  }, [user, form]);
+
   const onSubmit = async (data: UpdateProfileFormValues) => {
     try {
-      await userService.updateProfile(data);
+      const updatedUser = await userService.updateProfile(data);
+      setUser(updatedUser);
       toast.success('Profile updated successfully');
     } catch {
       toast.error('Failed to update profile');
@@ -42,7 +54,8 @@ export function ProfileForm() {
 
     try {
       setIsUploading(true);
-      await userService.uploadAvatar(file);
+      const updatedUser = await userService.uploadAvatar(file);
+      setUser(updatedUser);
       toast.success('Avatar updated successfully');
     } catch {
       toast.error('Failed to upload avatar');

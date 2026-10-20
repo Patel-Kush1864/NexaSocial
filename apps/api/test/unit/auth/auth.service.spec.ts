@@ -9,6 +9,8 @@ import { createMockUser, mockRegisterDto } from '../../fixtures/user.fixture';
 import { createMockRepository } from '../../mocks/repository.mock';
 import { UnauthorizedException, BadRequestException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { MailService } from '../../../src/mail/mail.service';
 
 describe('AuthService (Unit)', () => {
   let authService: AuthService;
@@ -40,6 +42,17 @@ describe('AuthService (Unit)', () => {
       find: jest.fn(),
     };
 
+    const mockEventEmitter = {
+      emit: jest.fn(),
+    };
+
+    const mockMailService = {
+      sendWelcomeEmail: jest.fn().mockResolvedValue({ status: 'PENDING' }),
+      sendEmailVerification: jest.fn().mockResolvedValue({ status: 'PENDING' }),
+      sendPasswordReset: jest.fn().mockResolvedValue({ status: 'PENDING' }),
+      sendPasswordChangedNotification: jest.fn().mockResolvedValue({ status: 'PENDING' }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
@@ -47,6 +60,8 @@ describe('AuthService (Unit)', () => {
         { provide: JwtService, useValue: jwtService },
         { provide: getRepositoryToken(UserSession), useValue: sessionRepo },
         { provide: LoggerServiceWrapper, useValue: loggerService },
+        { provide: EventEmitter2, useValue: mockEventEmitter },
+        { provide: MailService, useValue: mockMailService },
       ],
     }).compile();
 
@@ -59,7 +74,7 @@ describe('AuthService (Unit)', () => {
       const hashedPassword = await bcrypt.hash(plainPassword, 10);
       const user = createMockUser({ password: hashedPassword });
 
-      usersService.findByEmail.mockResolvedValue(user as any);
+      (usersService.findByEmail as jest.Mock).mockResolvedValue(user as any);
 
       const result = await authService.validateUser(user.email, plainPassword);
       expect(result).toBeDefined();
@@ -68,14 +83,14 @@ describe('AuthService (Unit)', () => {
 
     it('should return null when password is invalid', async () => {
       const user = createMockUser({ password: 'hashedpassword' });
-      usersService.findByEmail.mockResolvedValue(user as any);
+      (usersService.findByEmail as jest.Mock).mockResolvedValue(user as any);
 
       const result = await authService.validateUser(user.email, 'wrongpass');
       expect(result).toBeNull();
     });
 
     it('should return null if user not found', async () => {
-      usersService.findByEmail.mockResolvedValue(null);
+      (usersService.findByEmail as jest.Mock).mockResolvedValue(null);
       const result = await authService.validateUser(
         'unknown@example.com',
         'pass',
@@ -86,23 +101,23 @@ describe('AuthService (Unit)', () => {
 
   describe('register', () => {
     it('should create user and assign verification token', async () => {
-      const createdUser = createMockUser();
-      usersService.create.mockResolvedValue(createdUser as any);
-      usersService.save.mockResolvedValue(createdUser as any);
+      const createdUser = createMockUser({ verificationToken: 'test-token' });
+      (usersService.create as jest.Mock).mockResolvedValue(createdUser as any);
+      (usersService.save as jest.Mock).mockResolvedValue(createdUser as any);
 
       const res = await authService.register(mockRegisterDto);
 
       expect(usersService.create).toHaveBeenCalledWith(
-        {
+        expect.objectContaining({
           email: mockRegisterDto.email,
           password: mockRegisterDto.password,
           firstName: mockRegisterDto.firstName,
           lastName: mockRegisterDto.lastName,
-        },
-        'CREATOR',
+          isEmailVerified: true,
+        }),
+        'WORKSPACE_OWNER',
       );
       expect(res.verificationToken).toBeDefined();
-      expect(usersService.save).toHaveBeenCalled();
     });
   });
 
@@ -139,7 +154,7 @@ describe('AuthService (Unit)', () => {
       });
 
       sessionRepo.manager.find.mockResolvedValue([user]);
-      usersService.save.mockResolvedValue(user as any);
+      (usersService.save as jest.Mock).mockResolvedValue(user as any);
 
       await authService.verifyEmail(token);
       expect(user.isEmailVerified).toBe(true);

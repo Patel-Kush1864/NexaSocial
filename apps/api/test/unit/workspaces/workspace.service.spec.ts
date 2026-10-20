@@ -12,6 +12,7 @@ import { DataSource } from 'typeorm';
 import { createMockRepository } from '../../mocks/repository.mock';
 import { createMockWorkspace } from '../../fixtures/workspace.fixture';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 describe('WorkspacesService (Unit)', () => {
   let workspacesService: WorkspacesService;
@@ -32,7 +33,7 @@ describe('WorkspacesService (Unit)', () => {
 
     subscriptionsService = {
       assignFreePlan: jest.fn(),
-    };
+    } as any;
 
     const mockDataSource = {
       createQueryRunner: jest.fn().mockReturnValue({
@@ -60,6 +61,7 @@ describe('WorkspacesService (Unit)', () => {
         { provide: SubscriptionsService, useValue: subscriptionsService },
         { provide: LoggerServiceWrapper, useValue: { log: jest.fn() } },
         { provide: DataSource, useValue: mockDataSource },
+        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
       ],
     }).compile();
 
@@ -68,7 +70,9 @@ describe('WorkspacesService (Unit)', () => {
 
   describe('createWorkspace', () => {
     it('should throw BadRequestException if usage limit is reached', async () => {
-      usageLimitService.canCreateWorkspace!.mockResolvedValue(false);
+      (usageLimitService.canCreateWorkspace as jest.Mock).mockResolvedValue(
+        false,
+      );
 
       await expect(
         workspacesService.createWorkspace('user-1', { name: 'My Workspace' }),
@@ -76,7 +80,9 @@ describe('WorkspacesService (Unit)', () => {
     });
 
     it('should successfully create workspace when within usage limits', async () => {
-      usageLimitService.canCreateWorkspace!.mockResolvedValue(true);
+      (usageLimitService.canCreateWorkspace as jest.Mock).mockResolvedValue(
+        true,
+      );
       const res = await workspacesService.createWorkspace('user-1', {
         name: 'Alpha Tech',
       });

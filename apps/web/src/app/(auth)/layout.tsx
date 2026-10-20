@@ -25,12 +25,9 @@ interface AuthLayoutProps {
 export default function AuthLayout({ children }: AuthLayoutProps) {
   const platforms = [
     { name: 'YouTube', color: 'from-red-500 to-rose-600', active: true },
-    { name: 'Instagram', color: 'from-pink-500 via-purple-500 to-amber-500', active: true },
-    { name: 'TikTok', color: 'from-cyan-400 to-pink-500', active: true },
-    { name: 'X / Twitter', color: 'from-slate-700 to-slate-900', active: true },
-    { name: 'LinkedIn', color: 'from-blue-600 to-cyan-600', active: true },
+    { name: 'Instagram', color: 'from-pink-500 via-purple-500 to-orange-500', active: true },
     { name: 'Facebook', color: 'from-blue-500 to-indigo-600', active: true },
-    { name: 'Twitch', color: 'from-purple-600 to-indigo-600', active: true },
+    { name: 'X / Twitter', color: 'from-slate-700 to-slate-900', active: true },
   ];
 
   return (
@@ -90,7 +87,7 @@ export default function AuthLayout({ children }: AuthLayoutProps) {
             </h1>
 
             <p className="text-base text-muted-foreground leading-relaxed">
-              Unified command center across <strong className="text-foreground font-semibold">YouTube, Instagram, TikTok, X, LinkedIn, Facebook & Twitch</strong>. Stream 1080p60 video simultaneously and manage AI multi-platform publishing from one unified deck.
+              Unified command center across <strong className="text-foreground font-semibold">YouTube, Instagram, Facebook & X</strong>. Stream 1080p60 video simultaneously and manage AI multi-platform publishing from one unified deck.
             </p>
           </motion.div>
 

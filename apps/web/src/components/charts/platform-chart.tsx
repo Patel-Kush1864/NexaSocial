@@ -15,14 +15,13 @@ interface PlatformChartProps {
 }
 
 const defaultData: PlatformStat[] = [
-  { platform: 'YOUTUBE', followers: 12500, engagement: 85, percentage: 35 },
-  { platform: 'INSTAGRAM', followers: 9800, engagement: 92, percentage: 28 },
-  { platform: 'X', followers: 6400, engagement: 74, percentage: 18 },
-  { platform: 'LINKEDIN', followers: 4200, engagement: 68, percentage: 12 },
-  { platform: 'TWITCH', followers: 2500, engagement: 95, percentage: 7 },
+  { platform: 'YOUTUBE', followers: 12500, engagement: 85, percentage: 40 },
+  { platform: 'INSTAGRAM', followers: 9800, engagement: 91, percentage: 32 },
+  { platform: 'FACEBOOK', followers: 6400, engagement: 74, percentage: 20 },
+  { platform: 'X', followers: 2500, engagement: 88, percentage: 8 },
 ];
 
-const COLORS = ['#FF0000', '#E4405F', '#000000', '#0A66C2', '#9146FF'];
+const COLORS = ['#FF0000', '#E4405F', '#1877F2', '#1DA1F2'];
 
 export function PlatformChart({ data = defaultData }: PlatformChartProps) {
   return (

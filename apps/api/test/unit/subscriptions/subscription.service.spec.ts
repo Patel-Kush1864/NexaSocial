@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
 import { SubscriptionsService } from '../../../src/subscriptions/subscriptions.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import {
@@ -6,6 +7,8 @@ import {
   SubscriptionStatus,
 } from '../../../src/subscriptions/entities/user-subscription.entity';
 import { ActivityLog } from '../../../src/users/entities/activity-log.entity';
+import { Workspace } from '../../../src/workspaces/entities/workspace.entity';
+import { DataSource } from 'typeorm';
 import { PlansService } from '../../../src/plans/plans.service';
 import { PaymentsService } from '../../../src/payments/payments.service';
 import { LoggerServiceWrapper } from '../../../src/logger/logger.service';
@@ -32,7 +35,7 @@ describe('SubscriptionsService (Unit)', () => {
 
     paymentsService = {
       cancelSubscription: jest.fn(),
-    };
+    } as any;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -52,6 +55,14 @@ describe('SubscriptionsService (Unit)', () => {
           provide: MailService,
           useValue: { sendMail: jest.fn().mockResolvedValue(true) },
         },
+        {
+          provide: getRepositoryToken(Workspace),
+          useValue: createMockRepository(),
+        },
+        {
+          provide: DataSource,
+          useValue: { query: jest.fn().mockResolvedValue([]) },
+        },
       ],
     }).compile();
 
@@ -60,19 +71,11 @@ describe('SubscriptionsService (Unit)', () => {
   });
 
   describe('getCurrentSubscription', () => {
-    it('should auto-assign Free plan if user has no subscription', async () => {
+    it('should throw NotFoundException if user has no subscription', async () => {
       userSubRepo.findOne.mockResolvedValue(null);
-      const freeSub = {
-        id: 'sub-1',
-        userId: 'user-1',
-        planId: 'free-plan',
-        status: SubscriptionStatus.ACTIVE,
-      };
-      userSubRepo.create.mockReturnValue(freeSub);
-      userSubRepo.save.mockResolvedValue(freeSub);
-
-      const sub = await subscriptionsService.getCurrentSubscription('user-1');
-      expect(sub).toBeDefined();
+      await expect(
+        subscriptionsService.getCurrentSubscription('user-1'),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('should return active subscription when found', async () => {

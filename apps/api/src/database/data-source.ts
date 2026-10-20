@@ -20,7 +20,7 @@ export const dataSourceOptions: DataSourceOptions = {
     charset: 'utf8mb4_unicode_ci',
   },
   synchronize: false,
-  logging: true,
+  logging: ['error', 'warn'],
   entities: [path.join(__dirname, '/../**/*.entity{.ts,.js}')],
   migrations: [path.join(__dirname, '/migrations/*{.ts,.js}')],
   subscribers: [path.join(__dirname, '/subscribers/*{.ts,.js}')],

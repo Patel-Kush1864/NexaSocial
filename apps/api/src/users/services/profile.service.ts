@@ -18,6 +18,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { LoggerServiceWrapper } from '../../logger/logger.service';
 import { SubscriptionsService } from '../../subscriptions/subscriptions.service';
+import { MailService } from '../../mail/mail.service';
 
 @Injectable()
 export class ProfileService {
@@ -30,6 +31,7 @@ export class ProfileService {
     private readonly logger: LoggerServiceWrapper,
     private readonly subscriptionsService: SubscriptionsService,
     private readonly dataSource: DataSource,
+    private readonly mailService: MailService,
   ) {}
 
   async getProfile(userId: string) {
@@ -65,18 +67,39 @@ export class ProfileService {
       // Keep static fallbacks on count error
     }
 
-    const sub = await this.subscriptionsService.getCurrentSubscription(userId);
+    let subscriptionName = 'None';
+    try {
+      const sub =
+        await this.subscriptionsService.findActiveSubscription(userId);
+      if (sub?.plan?.name) {
+        subscriptionName = sub.plan.name;
+      }
+    } catch {
+      subscriptionName = 'None';
+    }
+
+    const userRole = user.role ? user.role.name : 'CREATOR';
+    const permissions =
+      user.role && user.role.permissions
+        ? user.role.permissions.map((p) => p.key)
+        : [];
 
     return {
       id: user.id,
       name:
         `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
+      firstName: user.firstName || '',
+      lastName: user.lastName || '',
       email: user.email,
       phone: user.phoneNumber || '',
       avatar: user.avatar || '',
-      subscription: sub.plan.name,
+      subscription: subscriptionName,
       workspaces: workspacesCount,
       connectedAccounts: connectedAccountsCount,
+      role: userRole,
+      permissions,
+      isActive: user.isActive,
+      isEmailVerified: user.isEmailVerified,
     };
   }
 
@@ -84,6 +107,17 @@ export class ProfileService {
     const user = await this.usersRepository.findById(userId);
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    const oldEmail = user.email;
+    const isEmailChanging =
+      !!dto.email && dto.email.toLowerCase() !== oldEmail.toLowerCase();
+
+    if (isEmailChanging && dto.email) {
+      const existingEmail = await this.usersRepository.findByEmail(dto.email);
+      if (existingEmail && existingEmail.id !== userId) {
+        throw new ConflictException('Email address is already in use');
+      }
     }
 
     if (dto.phoneNumber) {
@@ -96,6 +130,26 @@ export class ProfileService {
     }
 
     const updated = await this.usersRepository.update(userId, dto);
+
+    if (isEmailChanging && dto.email) {
+      const userName =
+        `${updated.firstName || ''} ${updated.lastName || ''}`.trim() ||
+        updated.email;
+      try {
+        await this.mailService.sendEmailChanged({
+          userId,
+          name: userName,
+          oldEmail,
+          newEmail: dto.email,
+        });
+      } catch (e: any) {
+        this.logger.warn(
+          `Failed to dispatch email changed alert: ${e.message}`,
+          'ProfileService',
+        );
+      }
+    }
+
     this.logger.log(
       `Profile Updated for user ID: ${userId}`,
       'ProfileService',
@@ -124,6 +178,13 @@ export class ProfileService {
 
     await this.sessionRepository.delete({ userId, id: Not(currentSessionId) });
 
+    const userName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
+    await this.mailService.sendPasswordChangedNotification({
+      id: user.id,
+      name: userName,
+      email: user.email,
+    });
+
     this.logger.log(
       `Password Changed for user ID: ${userId}. Revoked other sessions.`,
       'ProfileService',
@@ -149,9 +210,27 @@ export class ProfileService {
       verificationToken,
     });
 
-    const verificationLink = `http://localhost:3000/auth/verify-email?token=${verificationToken}`;
+    const userName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
+    // Send verification to the new email address
+    await this.mailService.sendEmailVerification({
+      id: user.id,
+      name: userName,
+      email: dto.email,
+      token: verificationToken,
+    });
+
+    // Notify old email of the change for security
+    await this.mailService.sendMail({
+      to: user.email,
+      userId: user.id,
+      eventType: 'user.email_changed',
+      subject: 'Security Alert: Your NexaSocial email was updated',
+      text: `Hi ${userName},\n\nYour NexaSocial account email address was changed to ${dto.email}.\n\nIf you did not authorize this change, please contact support immediately.`,
+      category: 'ESSENTIAL',
+    });
+
     this.logger.log(
-      `Email Updated. Verification link sent to ${dto.email}. Link: ${verificationLink}`,
+      `Email Updated for user ${userId} from ${user.email} to ${dto.email}.`,
       'ProfileService',
       'security',
     );

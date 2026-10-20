@@ -1,13 +1,15 @@
 'use client';
 
 import { useEffect, type ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
+import { useSubscriptionEntitlements } from '@/hooks/use-entitlements';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Navbar } from '@/components/layout/navbar';
 import { MobileSidebar } from '@/components/layout/mobile-sidebar';
 import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 import { LoadingSpinner } from '@/components/shared/loading-spinner';
+import { toast } from 'sonner';
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -15,13 +17,48 @@ interface DashboardLayoutProps {
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const { isAuthenticated, isLoading } = useAuth();
+  const {
+    hasActiveSubscription,
+    isPlatformAdmin,
+    isLoading: isEntitlementsLoading,
+  } = useSubscriptionEntitlements();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.push('/login');
+      return;
     }
-  }, [isLoading, isAuthenticated, router]);
+
+    // Protect subscription-restricted pages from direct URL entry
+    if (
+      !isLoading &&
+      !isEntitlementsLoading &&
+      isAuthenticated &&
+      !isPlatformAdmin &&
+      !hasActiveSubscription
+    ) {
+      const allowedPaths = ['/dashboard', '/billing', '/settings', '/notifications'];
+      const isAllowed = allowedPaths.some(
+        (p) => pathname === p || pathname.startsWith(`${p}/`),
+      );
+      if (!isAllowed) {
+        toast.info('Feature Locked', {
+          description: 'Choose a subscription plan to unlock NexaSocial features.',
+        });
+        router.push('/dashboard');
+      }
+    }
+  }, [
+    isLoading,
+    isEntitlementsLoading,
+    isAuthenticated,
+    isPlatformAdmin,
+    hasActiveSubscription,
+    pathname,
+    router,
+  ]);
 
   if (isLoading) {
     return (

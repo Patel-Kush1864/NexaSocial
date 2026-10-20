@@ -36,9 +36,11 @@ export const socialService = {
         return { authUrl: data?.authUrl || data?.url || '' };
       }
     }
+
     if (platform.toUpperCase() === 'YOUTUBE') {
       const backendUrl =
         process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+      console.log(`[SocialService] Initiating YouTube connection for workspaceId: ${workspaceId}`);
       return {
         authUrl: `${backendUrl}/auth/google?workspaceId=${encodeURIComponent(workspaceId)}`,
       };
@@ -52,12 +54,36 @@ export const socialService = {
   },
 
   async getAccounts(workspaceId?: string): Promise<SocialAccount[]> {
+    console.log('[SocialService] getAccounts() called for workspaceId:', workspaceId);
     try {
       const [generalRes, facebookRes] = await Promise.all([
-        apiClient.get<SocialAccount[]>('/social/accounts', {
-          params: { workspaceId },
-        }).catch(() => ({ data: [] })),
-        this.getFacebookAccounts().catch(() => []),
+        apiClient
+          .get<SocialAccount[]>('/social/accounts', {
+            params: { workspaceId },
+          })
+          .then((res) => {
+            console.log('[SocialService] GET /social/accounts success:', res.data);
+            return res;
+          })
+          .catch((err) => {
+            console.error(
+              '[SocialService] GET /social/accounts error:',
+              err?.response?.data || err?.message || err,
+            );
+            return { data: [] };
+          }),
+        this.getFacebookAccounts()
+          .then((res) => {
+            console.log('[SocialService] getFacebookAccounts success count:', res?.length);
+            return res;
+          })
+          .catch((err) => {
+            console.warn(
+              '[SocialService] getFacebookAccounts error:',
+              err?.response?.data || err?.message || err,
+            );
+            return [];
+          }),
       ]);
 
       const facebookAccounts: SocialAccount[] = (facebookRes || []).map(
@@ -101,6 +127,10 @@ export const socialService = {
             acc.status === 'CONNECTED' ||
             acc.isActive === true ||
             acc.connected === true,
+          followerCount:
+            acc.metadata?.subscribers ||
+            acc.followerCount ||
+            0,
           workspaceId: acc.workspaceId || workspaceId || '',
           connectedBy: acc.userId || '',
           createdAt: acc.createdAt || acc.created_at,
@@ -115,8 +145,13 @@ export const socialService = {
         ...generalAccounts.filter((a) => !existingIds.has(a.id)),
       ];
 
+      console.log(
+        `[SocialService] Total combined accounts (${combined.length}):`,
+        combined,
+      );
       return combined;
-    } catch {
+    } catch (err) {
+      console.error('[SocialService] Unexpected error in getAccounts():', err);
       return [];
     }
   },
@@ -190,4 +225,6 @@ export const socialService = {
     );
     return data;
   },
+
+
 };

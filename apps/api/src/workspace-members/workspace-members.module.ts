@@ -6,11 +6,13 @@ import { WorkspaceMembersController } from './controllers/workspace-members.cont
 import { Workspace } from '../workspaces/entities/workspace.entity';
 import { ActivityLog } from '../users/entities/activity-log.entity';
 import { LoggerModule } from '../logger/logger.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([WorkspaceMember, Workspace, ActivityLog]),
     LoggerModule,
+    MailModule,
   ],
   controllers: [WorkspaceMembersController],
   providers: [WorkspaceMembersService],

@@ -28,8 +28,13 @@ export function SecurityForm() {
       });
       toast.success('Password changed successfully');
       form.reset();
-    } catch {
-      toast.error('Failed to change password');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (error: any) {
+      const serverMessage = error?.response?.data?.message;
+      const description = typeof serverMessage === 'string'
+        ? serverMessage
+        : (Array.isArray(serverMessage) ? serverMessage[0] : 'Failed to change password');
+      toast.error(description);
     }
   };
 

@@ -3,10 +3,20 @@
 // ═══════════════════════════════════════════
 
 // ── Auth ──────────────────────────────────
+export type Scope = "PLATFORM" | "WORKSPACE";
+
 export interface TokenResponse {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  user?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  role?: string;
+  scope?: Scope;
+  permissions?: string[];
 }
 
 export interface LoginCredentials {
@@ -32,18 +42,22 @@ export interface User {
   bio?: string;
   timezone?: string;
   role: UserRole;
+  scope?: Scope;
   isActive: boolean;
   isEmailVerified: boolean;
+  permissions?: string[];
   createdAt: string;
   updatedAt: string;
 }
 
-export type UserRole = "USER" | "ADMIN";
+export type UserRole = "USER" | "ADMIN" | "SUPER_ADMIN" | "WORKSPACE_OWNER" | "MANAGER" | "CREATOR" | "VIEWER";
 
 export interface CurrentUser {
   id: string;
   email: string;
   role: UserRole;
+  scope?: Scope;
+  permissions: string[];
   sessionId: string;
 }
 
@@ -86,7 +100,10 @@ export interface WorkspaceWithMembers extends Workspace {
 
 // ── Social ────────────────────────────────
 export type SocialPlatform =
-  "YOUTUBE" | "FACEBOOK" | "INSTAGRAM" | "LINKEDIN" | "X" | "TWITCH" | "TIKTOK";
+  | "YOUTUBE"
+  | "FACEBOOK"
+  | "INSTAGRAM"
+  | "X";
 
 export interface SocialAccount {
   id: string;
@@ -95,12 +112,14 @@ export interface SocialAccount {
   platformAccountId: string;
   platformUserId?: string;
   accountName: string;
+  name?: string;
   accountAvatar?: string;
   accessToken?: string;
   refreshToken?: string;
   tokenExpiresAt?: string;
   isActive: boolean;
   followerCount?: number;
+  metadata?: Record<string, any>;
   workspaceId: string;
   connectedBy: string;
   lastSyncedAt?: string;
@@ -159,9 +178,63 @@ export interface StreamPlatform {
   platformStreamId?: string;
   streamKey?: string;
   streamUrl?: string;
+  viewerUrl?: string;
   status: string;
   socialAccountId?: string;
   connectedAccount?: SocialAccount;
+  // Facebook 3-step workflow fields:
+  facebookLiveVideoId?: string;
+  facebookPageId?: string;
+  sourceStatus?: 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED';
+  metadataStatus?: 'PENDING' | 'UPDATING' | 'COMPLETED' | 'FAILED';
+  publishStatus?: 'NOT_STARTED' | 'REQUESTED' | 'PUBLISHED' | 'FAILED';
+  sourceConnected?: boolean;
+  metadataCompleted?: boolean;
+  publishRequested?: boolean;
+  facebookStatus?: string;
+  facebookLastError?: string;
+  facebookLastErrorCode?: string;
+  sourceConnectedAt?: string;
+  metadataCompletedAt?: string;
+  publishedAt?: string;
+}
+
+export interface FacebookWorkflowStatusResponse {
+  sourceConnected: boolean;
+  metadataCompleted: boolean;
+  publishRequested: boolean;
+  sourceStatus?: string;
+  metadataStatus?: string;
+  publishStatus?: string;
+  facebookStatus?: string;
+  facebookLiveVideoId?: string;
+  facebookPageId?: string;
+  streamUrl?: string;
+  streamKey?: string;
+  viewerUrl?: string;
+  producerUrl?: string;
+  isRelayActive?: boolean;
+  sourceConnectedAt?: string;
+  metadataCompletedAt?: string;
+  publishedAt?: string;
+  facebookLastError?: string;
+  facebookLastErrorCode?: string;
+  message?: string;
+}
+
+export interface InstagramWorkflowStatusResponse {
+  configured: boolean;
+  platformId?: string;
+  status?: string;
+  streamUrl?: string;
+  isRelayActive?: boolean;
+  sourceConnected?: boolean;
+  isConfirmedLive?: boolean;
+  producerUrl?: string;
+  viewerUrl?: string;
+  publishedAt?: string;
+  message?: string;
+  success?: boolean;
 }
 
 export interface StreamDashboardStats {
@@ -219,6 +292,45 @@ export interface Plan {
   createdAt: string;
 }
 
+export type PlanStatus = "ACTIVE" | "INACTIVE" | "ARCHIVED";
+export type BillingCycle = "MONTHLY" | "YEARLY" | "QUARTERLY";
+export type BillingType = "RECURRING" | "ONE_TIME";
+
+export interface AdminPlan {
+  id: string;
+  name: string;
+  code?: string;
+  description?: string;
+  price: number;
+  currency: string;
+  billingCycle: BillingCycle;
+  billingType?: BillingType;
+  durationDays?: number | null;
+  isPopular?: boolean;
+  displayOrder?: number;
+  workspaceLimit: number;
+  teamMemberLimit: number;
+  socialAccountLimit: number;
+  liveStreamLimit: number;
+  maxStreams?: number;
+  storageLimit: number;
+  maxScheduledPosts?: number;
+  aiLimit?: number;
+  analytics: boolean;
+  scheduling: boolean;
+  aiFeatures: boolean;
+  liveStreaming?: boolean;
+  mediaLibrary?: boolean;
+  multiPlatformStreaming?: boolean;
+  apiAccess: boolean;
+  customBranding?: boolean;
+  support: string;
+  status: PlanStatus;
+  subscriberCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PlanFeature {
   name: string;
   included: boolean;
@@ -241,6 +353,50 @@ export interface Subscription {
   createdAt: string;
 }
 
+export interface PlanFeaturesMap {
+  workspaces: number;
+  socialAccounts: number;
+  teamMembers: number;
+  liveStreaming: boolean;
+  maxStreams?: number;
+  analytics: boolean;
+  aiFeatures: boolean;
+  aiLimit?: number;
+  prioritySupport: boolean;
+  storageGb: number;
+  apiAccess: boolean;
+  customBranding: boolean;
+  streamScheduling: boolean;
+  maxScheduledPosts?: number;
+  multiPlatformStreaming: boolean;
+  mediaLibrary?: boolean;
+}
+
+export interface SubscriptionEntitlements {
+  hasActiveSubscription: boolean;
+  status: string;
+  planId: string | null;
+  planName: string | null;
+  planCode?: string | null;
+  planPrice: number;
+  currency?: string;
+  billingPeriod: string | null;
+  durationDays?: number | null;
+  isPopular?: boolean;
+  startDate: string | null;
+  endDate: string | null;
+  cancelAtPeriodEnd: boolean;
+  features: PlanFeaturesMap | null;
+  latestPayment: {
+    id: string;
+    status: string;
+    amount: number;
+    currency: string;
+    gateway: string;
+    createdAt: string;
+  } | null;
+}
+
 // ── Payments ──────────────────────────────
 export type PaymentGateway = "STRIPE" | "RAZORPAY";
 export type PaymentStatus = "PENDING" | "COMPLETED" | "FAILED" | "REFUNDED";
@@ -259,13 +415,37 @@ export interface Payment {
 }
 
 // ── Dashboard ─────────────────────────────
+export interface KpiMetric {
+  value: number;
+  change: number;
+  direction: 'up' | 'down' | 'neutral';
+  currency?: string;
+}
+
 export interface DashboardSummary {
+  workspace?: { id: string; name: string; slug?: string; };
+  subscription?: string;
   totalFollowers: number;
   engagementRate: number;
   scheduledPosts: number;
   activeStreams: number;
   connectedAccounts: number;
-  recentActivity: ActivityItem[];
+  scheduledStreams?: number;
+  liveStreams?: number;
+  teamMembers?: number;
+  notifications?: number;
+  recentActivity?: ActivityItem[];
+}
+
+export interface PlatformDashboardSummary extends Omit<DashboardSummary, 'connectedAccounts' | 'liveStreams'> {
+  totalUsers?: KpiMetric;
+  workspaces?: KpiMetric;
+  subscriptions?: KpiMetric;
+  revenue?: KpiMetric;
+  connectedAccounts?: KpiMetric;
+  liveStreams?: KpiMetric;
+  activeUsers?: KpiMetric;
+  failedPayments?: KpiMetric;
 }
 
 export interface DashboardStatistics {
@@ -294,6 +474,31 @@ export interface ActivityItem {
   metadata?: Record<string, unknown>;
 }
 
+export interface PlatformActivity {
+  id: string;
+  userId?: string;
+  workspaceId?: string;
+  action: string;
+  module: string; // Used as category
+  description?: string;
+  metadata?: Record<string, unknown>;
+  entityType?: string;
+  entityId?: string;
+  created_at: string;
+  user?: { id: string; name: string; email: string };
+  workspace?: { id: string; name: string };
+}
+
+export interface PlatformActivityResponse {
+  data: PlatformActivity[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
 // ── Admin ─────────────────────────────────
 export interface AdminDashboardSummary {
   totalUsers: number;
@@ -310,6 +515,48 @@ export interface SystemHealth {
   queue: "UP" | "DOWN";
   storage: "UP" | "DOWN";
   uptime: number;
+}
+
+export interface SystemHealthResult {
+  overallStatus: 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY' | 'UNKNOWN';
+  checkedAt: string;
+  services: {
+    name: string;
+    status: 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY' | 'UNKNOWN';
+    responseTimeMs: number | null;
+    uptimePercentage: number | string;
+    checkedAt: string;
+    errorCount: number;
+  }[];
+  queue?: {
+    waiting: number;
+    active: number;
+    completed: number;
+    failed: number;
+    delayed: number;
+  };
+  database?: {
+    status: string;
+    responseTimeMs: number | null;
+    activeConnections?: number;
+  };
+  runtime?: {
+    memory: {
+      rssBytes: number;
+      heapUsedBytes: number;
+      heapTotalBytes: number;
+    };
+    cpu: {
+      loadAvg: number[];
+    };
+    uptimeSeconds: number;
+  };
+  storage?: {
+    status: string;
+    usedBytes: number | null;
+    freeBytes: number | null;
+    totalBytes: number | null;
+  };
 }
 
 // ── Common ────────────────────────────────

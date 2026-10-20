@@ -27,10 +27,12 @@ export class DashboardController {
   )
   async getSummary(
     @CurrentUser() user: CurrentUserType,
-    @Query('workspaceId') workspaceId: string,
+    @Query('workspaceId') workspaceId?: string,
   ) {
     if (!user) throw new BadRequestException('User context missing');
-    return this.service.getSummary(workspaceId, user.id);
+    const isPlatformScope =
+      user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
+    return this.service.getSummary(user.id, isPlatformScope, workspaceId);
   }
 
   @Get('statistics')
@@ -40,8 +42,14 @@ export class DashboardController {
     WorkspaceRole.CREATOR,
     WorkspaceRole.VIEWER,
   )
-  async getStatistics(@Query('workspaceId') workspaceId: string) {
-    return this.service.getStatistics(workspaceId);
+  async getStatistics(
+    @CurrentUser() user: CurrentUserType,
+    @Query('workspaceId') workspaceId?: string,
+  ) {
+    if (!user) throw new BadRequestException('User context missing');
+    const isPlatformScope =
+      user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
+    return this.service.getStatistics(isPlatformScope, workspaceId);
   }
 
   @Get('widgets')
@@ -53,10 +61,17 @@ export class DashboardController {
   )
   async getWidgets(
     @CurrentUser() user: CurrentUserType,
-    @Query('workspaceId') workspaceId: string,
+    @Query('workspaceId') workspaceId?: string,
     @Query('widget') widget?: string,
   ) {
     if (!user) throw new BadRequestException('User context missing');
-    return this.service.getWidgets(workspaceId, user.id, widget);
+    const isPlatformScope =
+      user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
+    return this.service.getWidgets(
+      user.id,
+      isPlatformScope,
+      workspaceId,
+      widget,
+    );
   }
 }

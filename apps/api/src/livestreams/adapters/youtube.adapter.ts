@@ -153,7 +153,9 @@ export class YoutubeAdapter implements PlatformAdapter {
         streamUrl,
         streamKey,
       };
-    } catch {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.warn(`[YouTube Adapter] createBroadcast exception, using fallback: ${errMsg}`);
       const platformStreamId = `yt_broadcast_fallback_${Math.random().toString(36).substring(7)}`;
       return {
         platformStreamId,
@@ -203,6 +205,39 @@ export class YoutubeAdapter implements PlatformAdapter {
     if (accessToken.startsWith('mock_')) return;
 
     try {
+      // 1. Check current broadcast lifecycle status and autoStart configuration
+      try {
+        const checkRes = await fetch(
+          `https://www.googleapis.com/youtube/v3/liveBroadcasts?id=${platformStreamId}&part=status,contentDetails`,
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          },
+        );
+        if (checkRes.ok) {
+          const checkData = await safeJson(checkRes);
+          const item = checkData.items?.[0];
+          const lifeCycle = String(item?.status?.lifeCycleStatus || '').toLowerCase();
+          const autoStart = Boolean(item?.contentDetails?.enableAutoStart);
+
+          // If broadcast is already live, liveStarting, or testing, transition is already underway
+          if (
+            lifeCycle === 'live' ||
+            lifeCycle === 'livestarting' ||
+            lifeCycle === 'testing'
+          ) {
+            return;
+          }
+
+          // When enableAutoStart is true, YouTube handles transition automatically as video chunks arrive.
+          // Calling liveBroadcasts/transition on an autoStart broadcast triggers 'invalidTransition'.
+          if (autoStart) {
+            return;
+          }
+        }
+      } catch {
+        // Fallback to transition endpoint if check query fails
+      }
+
       const response = await fetch(
         `https://www.googleapis.com/youtube/v3/liveBroadcasts/transition?id=${platformStreamId}&broadcastStatus=live&part=id,status`,
         {
@@ -213,12 +248,17 @@ export class YoutubeAdapter implements PlatformAdapter {
       if (!response.ok) {
         const data = await safeJson(response);
         const errMsg = String(data.error?.message || '');
+        const errReason = String(data.error?.errors?.[0]?.reason || '');
+        const lower = `${errMsg} ${errReason}`.toLowerCase();
         if (
-          errMsg.toLowerCase().includes('redundant') ||
-          errMsg.toLowerCase().includes('offline') ||
-          errMsg.toLowerCase().includes('inactive')
+          lower.includes('redundant') ||
+          lower.includes('offline') ||
+          lower.includes('inactive') ||
+          lower.includes('invalidtransition') ||
+          lower.includes('invalid transition') ||
+          lower.includes('already')
         ) {
-          // Stream broadcast created. Waiting for video ingestion from streaming software (OBS).
+          // Stream broadcast created and auto-transitioned by YouTube or waiting for video ingestion
           return;
         }
         throw new Error(
@@ -231,12 +271,22 @@ export class YoutubeAdapter implements PlatformAdapter {
       if (
         lowerMsg.includes('offline') ||
         lowerMsg.includes('inactive') ||
-        lowerMsg.includes('redundant')
+        lowerMsg.includes('redundant') ||
+        lowerMsg.includes('invalidtransition') ||
+        lowerMsg.includes('invalid transition') ||
+        lowerMsg.includes('already')
       ) {
         return;
       }
       throw new Error(`YouTube startBroadcast failed: ${msg}`);
     }
+  }
+
+  async getViewerUrl(
+    _accessToken: string,
+    platformStreamId: string,
+  ): Promise<string> {
+    return `https://www.youtube.com/watch?v=${platformStreamId}`;
   }
 
   async stopBroadcast(

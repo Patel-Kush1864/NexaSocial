@@ -7,20 +7,32 @@ import { PlansModule } from '../plans/plans.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { UsageLimitService } from './services/usage-limit.service';
 import { FeatureAccessGuard } from './guards/feature-access.guard';
+import { SubscriptionGuard } from './guards/subscription.guard';
 import { ActivityLog } from '../users/entities/activity-log.entity';
 import { LoggerModule } from '../logger/logger.module';
 import { MailModule } from '../mail/mail.module';
+import { Workspace } from '../workspaces/entities/workspace.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserSubscription, ActivityLog]),
+    TypeOrmModule.forFeature([UserSubscription, ActivityLog, Workspace]),
     PlansModule,
     forwardRef(() => PaymentsModule),
     LoggerModule,
     MailModule,
   ],
   controllers: [SubscriptionsController],
-  providers: [SubscriptionsService, UsageLimitService, FeatureAccessGuard],
-  exports: [SubscriptionsService, UsageLimitService, FeatureAccessGuard],
+  providers: [
+    SubscriptionsService,
+    UsageLimitService,
+    FeatureAccessGuard,
+    SubscriptionGuard,
+  ],
+  exports: [
+    SubscriptionsService,
+    UsageLimitService,
+    FeatureAccessGuard,
+    SubscriptionGuard,
+  ],
 })
 export class SubscriptionsModule {}

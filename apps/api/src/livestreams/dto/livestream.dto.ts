@@ -47,6 +47,10 @@ export class CreateStreamDto {
   @IsString()
   @IsOptional()
   youtubeStreamKey?: string;
+
+  @IsString()
+  @IsOptional()
+  customStreamKey?: string;
 }
 
 export class UpdateStreamDto {
@@ -86,10 +90,68 @@ export class UpdateStreamDto {
   @IsString()
   @IsOptional()
   youtubeStreamKey?: string;
+
+  @IsString()
+  @IsOptional()
+  customStreamKey?: string;
+
+  @IsString()
+  @IsOptional()
+  customStreamUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  platformId?: string;
 }
 
 export class ScheduleStreamDto {
   @IsString()
   @IsNotEmpty()
   scheduledAt: string;
+}
+
+export class FacebookSourceDto {
+  @IsString()
+  @IsOptional()
+  platformId?: string;
+
+  @IsString()
+  @IsOptional()
+  streamUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  streamKey?: string;
+
+  @IsString()
+  @IsOptional()
+  customStreamUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  customStreamKey?: string;
+}
+
+export class FacebookMetadataDto {
+  @IsString()
+  @IsOptional()
+  platformId?: string;
+
+  @IsString()
+  @IsOptional()
+  title?: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @IsString()
+  @IsOptional()
+  pageId?: string;
+}
+
+export class FacebookPublishDto {
+  @IsString()
+  @IsOptional()
+  platformId?: string;
 }

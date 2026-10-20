@@ -1,7 +1,9 @@
+/* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument */
 import {
   Injectable,
   NotFoundException,
+  ForbiddenException,
   Inject,
   forwardRef,
   BadRequestException,
@@ -18,6 +20,11 @@ import { RazorpayGateway } from './gateways/razorpay.gateway';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { ActivityLog } from '../users/entities/activity-log.entity';
 import { LoggerServiceWrapper } from '../logger/logger.service';
+import { Workspace } from '../workspaces/entities/workspace.entity';
+import { MailService } from '../mail/mail.service';
+import { PaymentListQueryDto } from './dto/payment-list-query.dto';
+import { PaymentStatisticsQueryDto } from './dto/payment-statistics-query.dto';
+import { PaymentExportQueryDto } from './dto/payment-export-query.dto';
 
 @Injectable()
 export class PaymentsService {
@@ -34,7 +41,26 @@ export class PaymentsService {
     @Inject(forwardRef(() => SubscriptionsService))
     private readonly subscriptionsService: SubscriptionsService,
     private readonly loggerService: LoggerServiceWrapper,
-  ) {}
+    @InjectRepository(Workspace)
+    private readonly workspaceRepository: Repository<Workspace>,
+    private readonly mailService: MailService,
+  ) { }
+
+  private async getUserInfo(userId: string): Promise<{ name: string; email: string }> {
+    try {
+      const rows = await this.paymentRepository.manager.query(
+        'SELECT first_name, last_name, email FROM `users` WHERE id = ? LIMIT 1',
+        [userId],
+      );
+      if (rows && rows[0]?.email) {
+        const name =
+          `${rows[0].first_name || ''} ${rows[0].last_name || ''}`.trim() ||
+          rows[0].email.split('@')[0];
+        return { name, email: rows[0].email };
+      }
+    } catch {}
+    return { name: 'Customer', email: 'user@example.com' };
+  }
 
   async createOrder(userId: string, dto: CreatePaymentOrderDto) {
     const plan = await this.plansService.findOne(dto.planId);
@@ -108,6 +134,7 @@ export class PaymentsService {
         amount: payment.amount,
         currency: payment.currency,
         gateway: dto.gateway,
+        keyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_dummy',
       };
     } catch (error: any) {
       payment.status = PaymentStatus.FAILED;
@@ -136,6 +163,13 @@ export class PaymentsService {
       throw new NotFoundException('Payment record not found');
     }
 
+    // Verify ownership: client cannot verify payments belonging to another user
+    if (payment.userId && payment.userId !== userId) {
+      throw new ForbiddenException(
+        'Payment record does not belong to current user',
+      );
+    }
+
     if (payment.status === PaymentStatus.SUCCESS) {
       return { status: 'SUCCESS', payment };
     }
@@ -155,12 +189,12 @@ export class PaymentsService {
     } else {
       // Perform signature check
       if (dto.gateway === 'RAZORPAY') {
-        const secret = this.configServiceGetRazorpayWebhookSecret();
-        // For Razorpay, verified by custom HMAC logic
-        isVerified = this.razorpayGateway.verifyWebhookSignature(
-          `${dto.gatewayOrderId}|${dto.gatewayPaymentId}`,
+        // Standard Checkout payment signature is verified using RAZORPAY_KEY_SECRET
+        const orderId = dto.gatewayOrderId || payment.gatewayOrderId || '';
+        isVerified = this.razorpayGateway.verifyPaymentSignature(
+          orderId,
+          dto.gatewayPaymentId,
           dto.gatewaySignature || '',
-          secret,
         );
       } else {
         // Stripe success is typically handled asynchronously via Webhook.
@@ -172,6 +206,23 @@ export class PaymentsService {
     if (!isVerified) {
       payment.status = PaymentStatus.FAILED;
       await this.paymentRepository.save(payment);
+
+      try {
+        const userInfo = await this.getUserInfo(payment.userId!);
+        await this.mailService.sendPaymentFailed({
+          userId: payment.userId!,
+          name: userInfo.name,
+          email: userInfo.email,
+          amount: payment.amount,
+          currency: payment.currency,
+          planName: 'Subscription Plan',
+          reason: 'Payment signature verification check failed.',
+          paymentId: payment.id,
+        });
+      } catch (e: any) {
+        this.logger.error(`Failed to send payment failure email: ${e.message}`);
+      }
+
       throw new BadRequestException(
         'Payment verification signature check failed',
       );
@@ -216,6 +267,24 @@ export class PaymentsService {
         },
       }),
     );
+
+    // Send Payment Success Receipt with idempotency
+    try {
+      const userInfo = await this.getUserInfo(payment.userId!);
+      await this.mailService.sendPaymentSuccessReceipt({
+        userId: payment.userId!,
+        name: userInfo.name,
+        email: userInfo.email,
+        amount: payment.amount,
+        currency: payment.currency,
+        paymentId: payment.gatewayPaymentId || payment.id,
+        orderId: payment.gatewayOrderId,
+        planName: subscription.plan?.name || 'Subscription Tier',
+        date: payment.created_at,
+      });
+    } catch (e: any) {
+      this.logger.error(`Failed to send payment receipt email: ${e.message}`);
+    }
 
     return { status: 'SUCCESS', payment };
   }
@@ -269,14 +338,25 @@ export class PaymentsService {
           payment.subscriptionId = sub.id;
           await this.paymentRepository.save(payment);
 
-          // Log payment success
-          await this.activityLogRepository.save(
-            this.activityLogRepository.create({
+          // Send Payment Success Receipt with idempotency
+          try {
+            const userInfo = await this.getUserInfo(payment.userId!);
+            await this.mailService.sendPaymentSuccessReceipt({
               userId: payment.userId!,
-              action: 'PAYMENT_SUCCESS_WEBHOOK',
-              metadata: { paymentId: payment.id, stripePaymentId },
-            }),
-          );
+              name: userInfo.name,
+              email: userInfo.email,
+              amount: payment.amount,
+              currency: payment.currency,
+              paymentId: stripePaymentId,
+              orderId: payment.gatewayOrderId,
+              planName: sub.plan?.name || 'Subscription Tier',
+              date: payment.created_at,
+            });
+          } catch (e: any) {
+            this.logger.error(
+              `Failed to send payment receipt email via Stripe webhook: ${e.message}`,
+            );
+          }
         }
       } else if (eventType === 'payment_intent.payment_failed') {
         const paymentIntent = bodyObj.data.object;
@@ -298,6 +378,51 @@ export class PaymentsService {
               metadata: { paymentId: payment.id },
             }),
           );
+
+          try {
+            const userInfo = await this.getUserInfo(payment.userId!);
+            await this.mailService.sendPaymentFailed({
+              userId: payment.userId!,
+              name: userInfo.name,
+              email: userInfo.email,
+              amount: payment.amount,
+              currency: payment.currency,
+              planName: 'Subscription Plan',
+              reason:
+                paymentIntent.last_payment_error?.message ||
+                'Payment processing failed.',
+              paymentId: payment.id,
+            });
+          } catch (e: any) {
+            this.logger.error(
+              `Failed to send Stripe failure email: ${e.message}`,
+            );
+          }
+        }
+      } else if (eventType === 'charge.refunded' || eventType === 'refund.created') {
+        const charge = bodyObj.data.object;
+        const payment = await this.paymentRepository.findOne({
+          where: { gatewayPaymentId: charge.payment_intent || charge.id },
+        });
+        if (payment && payment.status !== PaymentStatus.REFUNDED) {
+          payment.status = PaymentStatus.REFUNDED;
+          payment.refundedAmount = payment.amount;
+          await this.paymentRepository.save(payment);
+
+          try {
+            const userInfo = await this.getUserInfo(payment.userId!);
+            await this.mailService.sendPaymentRefunded({
+              userId: payment.userId!,
+              name: userInfo.name,
+              email: userInfo.email,
+              amount: payment.amount,
+              currency: payment.currency,
+              paymentId: payment.gatewayPaymentId || payment.id,
+              reason: 'Customer refund processed successfully.',
+            });
+          } catch (e: any) {
+            this.logger.error(`Failed to send Stripe refund email: ${e.message}`);
+          }
         }
       }
     } else {
@@ -354,6 +479,76 @@ export class PaymentsService {
               metadata: { paymentId: payment.id, gatewayPaymentId },
             }),
           );
+
+          // Dispatch payment success receipt
+          try {
+            const userInfo = await this.getUserInfo(payment.userId!);
+            await this.mailService.sendPaymentSuccessReceipt({
+              userId: payment.userId!,
+              name: userInfo.name,
+              email: userInfo.email,
+              amount: payment.amount,
+              currency: payment.currency,
+              paymentId: gatewayPaymentId,
+              orderId: gatewayOrderId,
+              planName: sub.plan?.name || 'Subscription Tier',
+              date: payment.created_at,
+            });
+          } catch (e: any) {
+            this.logger.error(`Failed to send payment receipt email via webhook: ${e.message}`);
+          }
+        }
+      } else if (eventType === 'payment.failed') {
+        const entity = bodyObj.payload.payment.entity;
+        const gatewayOrderId = entity.order_id;
+        const payment = await this.paymentRepository.findOne({
+          where: { gatewayOrderId },
+        });
+        if (payment) {
+          payment.status = PaymentStatus.FAILED;
+          payment.metadata = { error: entity.error_description };
+          await this.paymentRepository.save(payment);
+
+          try {
+            const userInfo = await this.getUserInfo(payment.userId!);
+            await this.mailService.sendPaymentFailed({
+              userId: payment.userId!,
+              name: userInfo.name,
+              email: userInfo.email,
+              amount: payment.amount,
+              currency: payment.currency,
+              planName: 'Subscription Plan',
+              reason: entity.error_description || 'Payment transaction failed.',
+              paymentId: entity.id,
+            });
+          } catch (e: any) {
+            this.logger.error(`Failed to send Razorpay failure email: ${e.message}`);
+          }
+        }
+      } else if (eventType === 'refund.processed') {
+        const refund = bodyObj.payload.refund.entity;
+        const payment = await this.paymentRepository.findOne({
+          where: { gatewayPaymentId: refund.payment_id },
+        });
+        if (payment && payment.status !== PaymentStatus.REFUNDED) {
+          payment.status = PaymentStatus.REFUNDED;
+          payment.refundedAmount = Number(refund.amount) / 100 || payment.amount;
+          await this.paymentRepository.save(payment);
+
+          try {
+            const userInfo = await this.getUserInfo(payment.userId!);
+            await this.mailService.sendPaymentRefunded({
+              userId: payment.userId!,
+              name: userInfo.name,
+              email: userInfo.email,
+              amount: payment.refundedAmount,
+              currency: payment.currency,
+              paymentId: refund.id || payment.gatewayPaymentId,
+              reason: refund.notes?.reason || 'Refund processed.',
+            });
+          } catch (e: any) {
+            this.logger.error(`Failed to send Razorpay refund email: ${e.message}`);
+          }
         }
       }
     }
@@ -367,6 +562,282 @@ export class PaymentsService {
       relations: { plan: true },
       order: { created_at: 'DESC' },
     });
+  }
+
+  // --- ADMIN PLATFORM METHODS ---
+  async findAll(query: PaymentListQueryDto) {
+    const {
+      page = 1,
+      limit = 20,
+      search,
+      status,
+      provider,
+      workspaceId,
+      planId,
+      dateFrom,
+      dateTo,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+    } = query;
+
+    const qb = this.paymentRepository
+      .createQueryBuilder('payment')
+      .leftJoinAndSelect('payment.user', 'user')
+      .leftJoinAndSelect('payment.plan', 'plan')
+      .leftJoinAndSelect('payment.subscription', 'subscription');
+
+    if (status) {
+      qb.andWhere('payment.status = :status', { status });
+    }
+
+    if (provider) {
+      qb.andWhere('payment.gateway = :provider', { provider });
+    }
+
+    if (planId) {
+      qb.andWhere('payment.plan_id = :planId', { planId });
+    }
+
+    if (dateFrom) {
+      qb.andWhere('payment.created_at >= :dateFrom', { dateFrom });
+    }
+
+    if (dateTo) {
+      qb.andWhere('payment.created_at <= :dateTo', { dateTo });
+    }
+
+    if (search) {
+      qb.andWhere(
+        '(payment.id LIKE :search OR payment.gateway_payment_id LIKE :search OR user.name LIKE :search OR user.email LIKE :search OR plan.name LIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    if (workspaceId) {
+      qb.andWhere(
+        'payment.user_id IN (SELECT owner_id FROM workspaces WHERE id = :workspaceId)',
+        { workspaceId },
+      );
+    }
+
+    const sortFieldMap: Record<string, string> = {
+      createdAt: 'payment.created_at',
+      amount: 'payment.amount',
+      status: 'payment.status',
+    };
+
+    const orderField = sortFieldMap[sortBy] || 'payment.created_at';
+    qb.orderBy(orderField, sortOrder.toUpperCase() as 'ASC' | 'DESC');
+
+    qb.skip((page - 1) * limit).take(limit);
+
+    const [items, total] = await qb.getManyAndCount();
+
+    const userIds = items
+      .map((item) => item.userId)
+      .filter(Boolean) as string[];
+    let workspaces: Workspace[] = [];
+    if (userIds.length > 0) {
+      workspaces = await this.workspaceRepository
+        .createQueryBuilder('workspace')
+        .where('workspace.owner_id IN (:...userIds)', { userIds })
+        .getMany();
+    }
+
+    const data = items.map((item) => {
+      const workspace = workspaces.find((w) => w.ownerId === item.userId);
+      return {
+        id: item.id,
+        reference: item.gatewayPaymentId || item.id,
+        workspace: workspace
+          ? { id: workspace.id, name: workspace.name }
+          : null,
+        user: item.user
+          ? {
+            id: item.user.id,
+            name:
+              `${item.user.firstName || ''} ${item.user.lastName || ''}`.trim() ||
+              'Unknown',
+            email: item.user.email,
+          }
+          : null,
+        plan: item.plan ? { id: item.plan.id, name: item.plan.name } : null,
+        subscriptionId: item.subscriptionId,
+        amount: Number(item.amount),
+        currency: item.currency,
+        status: item.status,
+        provider: item.gateway,
+        paymentMethod: 'CARD',
+        createdAt: item.created_at,
+      };
+    });
+
+    return {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getStatistics(query: PaymentStatisticsQueryDto) {
+    const qb = this.paymentRepository.createQueryBuilder('payment');
+
+    if (query.dateFrom) {
+      qb.andWhere('payment.created_at >= :dateFrom', {
+        dateFrom: query.dateFrom,
+      });
+    }
+
+    if (query.dateTo) {
+      qb.andWhere('payment.created_at <= :dateTo', { dateTo: query.dateTo });
+    }
+
+    if (query.planId) {
+      qb.andWhere('payment.plan_id = :planId', { planId: query.planId });
+    }
+
+    if (query.workspaceId) {
+      qb.andWhere(
+        'payment.user_id IN (SELECT owner_id FROM workspaces WHERE id = :workspaceId)',
+        { workspaceId: query.workspaceId },
+      );
+    }
+
+    const [successfulCount, failedCount, refundedCount, pendingCount] =
+      await Promise.all([
+        qb
+          .clone()
+          .andWhere('payment.status = :s', { s: PaymentStatus.SUCCESS })
+          .getCount(),
+        qb
+          .clone()
+          .andWhere('payment.status = :s', { s: PaymentStatus.FAILED })
+          .getCount(),
+        qb
+          .clone()
+          .andWhere('payment.status = :s', { s: PaymentStatus.REFUNDED })
+          .getCount(),
+        qb
+          .clone()
+          .andWhere('payment.status = :s', { s: PaymentStatus.PENDING })
+          .getCount(),
+      ]);
+
+    const revenueResult = await qb
+      .clone()
+      .andWhere('payment.status = :s', { s: PaymentStatus.SUCCESS })
+      .select('SUM(payment.amount)', 'total')
+      .getRawOne();
+
+    const refundedResult = await qb
+      .clone()
+      .andWhere('payment.status = :s', { s: PaymentStatus.REFUNDED })
+      .select('SUM(payment.amount)', 'total')
+      .getRawOne();
+
+    const failedResult = await qb
+      .clone()
+      .andWhere('payment.status = :s', { s: PaymentStatus.FAILED })
+      .select('SUM(payment.amount)', 'total')
+      .getRawOne();
+
+    const pendingResult = await qb
+      .clone()
+      .andWhere('payment.status = :s', { s: PaymentStatus.PENDING })
+      .select('SUM(payment.amount)', 'total')
+      .getRawOne();
+
+    return {
+      totalRevenue: {
+        amount: Number(revenueResult?.total || 0),
+        currency: 'INR',
+      },
+      successful: {
+        count: successfulCount,
+        amount: Number(revenueResult?.total || 0),
+      },
+      failed: {
+        count: failedCount,
+        amount: Number(failedResult?.total || 0),
+      },
+      refunded: {
+        count: refundedCount,
+        amount: Number(refundedResult?.total || 0),
+      },
+      pending: {
+        count: pendingCount,
+        amount: Number(pendingResult?.total || 0),
+      },
+    };
+  }
+
+  async findOneById(id: string) {
+    const payment = await this.paymentRepository.findOne({
+      where: { id },
+      relations: ['user', 'plan', 'subscription'],
+    });
+
+    if (!payment) {
+      throw new NotFoundException('Payment not found');
+    }
+
+    let workspace: Workspace | null = null;
+    if (payment.userId) {
+      workspace = await this.workspaceRepository.findOne({
+        where: { ownerId: payment.userId },
+      });
+    }
+
+    return {
+      id: payment.id,
+      reference: payment.gatewayPaymentId || payment.id,
+      invoiceReference: payment.gatewayOrderId,
+      amount: Number(payment.amount),
+      currency: payment.currency,
+      status: payment.status,
+      provider: payment.gateway,
+      paymentMethod: 'CARD',
+      createdAt: payment.created_at,
+      updatedAt: payment.updated_at,
+      user: payment.user
+        ? {
+          id: payment.user.id,
+          name:
+            `${payment.user.firstName || ''} ${payment.user.lastName || ''}`.trim() ||
+            'Unknown',
+          email: payment.user.email,
+        }
+        : null,
+      workspace: workspace ? { id: workspace.id, name: workspace.name } : null,
+      plan: payment.plan
+        ? { id: payment.plan.id, name: payment.plan.name }
+        : null,
+      subscription: payment.subscription
+        ? { id: payment.subscription.id, status: payment.subscription.status }
+        : null,
+    };
+  }
+
+  async exportPayments(query: PaymentExportQueryDto) {
+    const { data } = await this.findAll({ ...query, page: 1, limit: 10000 });
+    return data.map((p) => ({
+      'Payment ID': p.id,
+      Reference: p.reference,
+      User: p.user?.name || 'N/A',
+      Email: p.user?.email || 'N/A',
+      Workspace: p.workspace?.name || 'N/A',
+      Plan: p.plan?.name || 'N/A',
+      Subscription: p.subscriptionId || 'N/A',
+      Amount: p.amount,
+      Currency: p.currency,
+      Status: p.status,
+      Provider: p.provider,
+      'Payment Date': p.createdAt,
+    }));
   }
 
   private configServiceGetRazorpayWebhookSecret(): string {

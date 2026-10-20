@@ -1,4 +1,13 @@
-import { IsString, IsOptional, IsEnum } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsNumber,
+  Min,
+  IsArray,
+  IsBoolean,
+} from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 
 export enum ReportFormat {
   JSON = 'JSON',
@@ -7,20 +16,69 @@ export enum ReportFormat {
   PDF = 'PDF',
 }
 
+export enum SortOrder {
+  ASC = 'ASC',
+  DESC = 'DESC',
+}
+
 export class QueryReportsDto {
   @IsString()
   @IsOptional()
-  reportType?: string; // 'REVENUE', 'NEW_USERS', 'SUBSCRIPTIONS', 'STREAMS', 'PLATFORMS', 'WORKSPACES'
+  reportType?: string;
 
   @IsString()
   @IsOptional()
-  startDate?: string;
+  dateFrom?: string;
 
   @IsString()
   @IsOptional()
-  endDate?: string;
+  dateTo?: string;
+
+  @IsString()
+  @IsOptional()
+  workspaceId?: string;
+
+  @IsString()
+  @IsOptional()
+  status?: string;
+
+  @IsString()
+  @IsOptional()
+  currency?: string;
+
+  @IsString()
+  @IsOptional()
+  platform?: string;
+
+  @IsString()
+  @IsOptional()
+  planId?: string;
+
+  @IsString()
+  @IsOptional()
+  search?: string;
 
   @IsEnum(ReportFormat)
   @IsOptional()
-  format?: ReportFormat;
+  format?: ReportFormat = ReportFormat.JSON;
+
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  @IsOptional()
+  page?: number = 1;
+
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  @IsOptional()
+  limit?: number = 25;
+
+  @IsString()
+  @IsOptional()
+  sortBy?: string = 'createdAt';
+
+  @IsEnum(SortOrder)
+  @IsOptional()
+  sortOrder?: SortOrder = SortOrder.DESC;
 }

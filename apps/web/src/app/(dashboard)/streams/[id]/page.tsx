@@ -1,3 +1,5 @@
+/* eslint-disable react-hooks/set-state-in-effect */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
@@ -30,12 +32,25 @@ import {
   Edit3,
   Check,
   Copy,
+  CheckCircle2,
+  AlertCircle,
+  AlertTriangle,
+  RefreshCw,
+  Globe,
+  ShieldCheck,
+  Sparkles,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-client";
+import { livestreamService } from "@/services/livestream.service";
 
 import { useSocketContext } from "@/providers/socket-provider";
 import { StreamPlatform } from "@/types";
+import { PLATFORM_CONFIG } from "@/lib/constants";
 
 export default function StreamControlStudioPage() {
   const params = useParams();
@@ -54,9 +69,48 @@ export default function StreamControlStudioPage() {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
-  const [customKey, setCustomKey] = useState("");
-  const [isEditingKey, setIsEditingKey] = useState(false);
-  const [copiedKey, setCopiedKey] = useState(false);
+
+  const [isEditingMeta, setIsEditingMeta] = useState(false);
+  const [metaTitle, setMetaTitle] = useState("");
+  const [metaDescription, setMetaDescription] = useState("");
+
+  useEffect(() => {
+    if (stream) {
+      setMetaTitle(stream.title || "");
+      setMetaDescription(stream.description || "");
+    }
+  }, [stream]);
+
+  const handleSaveMeta = async () => {
+    if (!currentWorkspace || !stream) return;
+    try {
+      await updateStream({
+        id: stream.id,
+        workspaceId: currentWorkspace.id,
+        payload: { title: metaTitle, description: metaDescription } as any,
+      });
+      setIsEditingMeta(false);
+      toast.success("Stream details updated successfully!");
+    } catch (error) {
+      toast.error("Failed to update stream details.");
+    }
+  };
+
+  const queryClient = useQueryClient();
+  const [customKeys, setCustomKeys] = useState<Record<string, string>>({});
+  const [editingKeys, setEditingKeys] = useState<Record<string, boolean>>({});
+  const [copiedKeys, setCopiedKeys] = useState<Record<string, boolean>>({});
+  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
+
+  const [customUrls, setCustomUrls] = useState<Record<string, string>>({});
+  const [editingUrls, setEditingUrls] = useState<Record<string, boolean>>({});
+  const [copiedUrls, setCopiedUrls] = useState<Record<string, boolean>>({});
+
+  const [isVerifyingSource, setIsVerifyingSource] = useState<Record<string, boolean>>({});
+  const [isSyncingMeta, setIsSyncingMeta] = useState<Record<string, boolean>>({});
+  const [isPublishingFb, setIsPublishingFb] = useState<Record<string, boolean>>({});
+  const [isConfirmingInstagram, setIsConfirmingInstagram] = useState<Record<string, boolean>>({});
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const screenVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -68,61 +122,261 @@ export default function StreamControlStudioPage() {
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
 
-  // Extract YouTube platform stream binding if available
-  const youtubePlatform = (stream?.platforms || []).find(
-    (p: StreamPlatform) =>
-      p.connectedAccount?.platformName?.toUpperCase() === "YOUTUBE" ||
-      p.connectedAccount?.platform?.toUpperCase() === "YOUTUBE" ||
-      p.platformName?.toUpperCase() === "YOUTUBE" ||
-      p.platform?.toUpperCase() === "YOUTUBE",
-  );
+  const platforms: StreamPlatform[] = stream?.platforms || [];
 
-  const handleSaveKey = async () => {
-    if (!customKey.trim() || !stream || !currentWorkspace) return;
+  const handleVerifyFacebookSource = async (platform: StreamPlatform) => {
+    if (!stream || !currentWorkspace) return;
+    try {
+      setIsVerifyingSource(prev => ({ ...prev, [platform.id]: true }));
+      const currentKey = customKeys[platform.id] || platform.streamKey;
+      const currentUrl = customUrls[platform.id] || platform.streamUrl;
+
+      console.log("[NexaSocial Studio] ▶ Step 1 Triggered: Verifying Facebook video source...", {
+        streamId: stream.id,
+        platformId: platform.id,
+        streamUrl: currentUrl,
+        hasKey: Boolean(currentKey),
+      });
+
+      const res = await livestreamService.verifyFacebookSource(stream.id, currentWorkspace.id, {
+        platformId: platform.id,
+        streamKey: currentKey,
+        streamUrl: currentUrl,
+      });
+
+      console.log("[NexaSocial Studio] ✔ Step 1 Result from backend:", res);
+
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.streams.detail(stream.id),
+      });
+
+      if (res.sourceConnected) {
+        toast.success(res.message || "Step 1 Complete: Facebook video source confirmed connected!");
+      } else {
+        toast.info(res.message || "Video relay active. Waiting for video packets from camera...");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[NexaSocial Studio] ✖ Step 1 Error:", err);
+      toast.error(`Source verification notice: ${msg}`);
+    } finally {
+      setIsVerifyingSource(prev => ({ ...prev, [platform.id]: false }));
+    }
+  };
+
+  const handleSyncFacebookMetadata = async (platform: StreamPlatform) => {
+    if (!stream || !currentWorkspace) return;
+    try {
+      setIsSyncingMeta(prev => ({ ...prev, [platform.id]: true }));
+      console.log("[NexaSocial Studio] ▶ Step 2 Triggered: Syncing Facebook post details...", {
+        streamId: stream.id,
+        platformId: platform.id,
+        title: metaTitle || stream.title,
+      });
+
+      const res = await livestreamService.syncFacebookMetadata(stream.id, currentWorkspace.id, {
+        platformId: platform.id,
+        title: metaTitle || stream.title,
+        description: metaDescription || stream.description,
+      });
+
+      console.log("[NexaSocial Studio] ✔ Step 2 Result from backend:", res);
+
+      if (res.streamKey) {
+        setCustomKeys(prev => ({ ...prev, [platform.id]: res.streamKey! }));
+      }
+      if (res.streamUrl) {
+        setCustomUrls(prev => ({ ...prev, [platform.id]: res.streamUrl! }));
+      }
+
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.streams.detail(stream.id),
+      });
+
+      toast.success(res.message || "Step 2 Complete: Post details synced with Facebook Graph API!");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[NexaSocial Studio] ✖ Step 2 Error:", err);
+      toast.error(`Failed to sync post details: ${msg}`);
+    } finally {
+      setIsSyncingMeta(prev => ({ ...prev, [platform.id]: false }));
+    }
+  };
+
+  const handlePublishFacebook = async (platform: StreamPlatform) => {
+    if (!stream || !currentWorkspace) return;
+    try {
+      setIsPublishingFb(prev => ({ ...prev, [platform.id]: true }));
+      if (!isCameraOn && !isScreenSharing) {
+        console.log("[NexaSocial Studio] Camera not started, auto-starting camera before going live...");
+        await startCamera();
+      }
+
+      console.log("[NexaSocial Studio] ▶ Step 3 Triggered: Publishing to Facebook (Go Live Now)...", {
+        streamId: stream.id,
+        platformId: platform.id,
+        liveVideoId: platform.facebookLiveVideoId,
+      });
+
+      toast.info("Connecting & publishing broadcast on Facebook...");
+      const res = await livestreamService.publishFacebook(stream.id, currentWorkspace.id, {
+        platformId: platform.id,
+      });
+
+      console.log("[NexaSocial Studio] ✔ Step 3 Result from backend:", res);
+
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.streams.detail(stream.id),
+      });
+
+      toast.success(res.message || "Step 3 Complete: Broadcast is now LIVE on Facebook!");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[NexaSocial Studio] ✖ Step 3 Error:", err);
+      toast.error(`Facebook Go Live error: ${msg}`);
+    } finally {
+      setIsPublishingFb(prev => ({ ...prev, [platform.id]: false }));
+    }
+  };
+
+  const handleConfirmInstagramLive = async (platform: StreamPlatform) => {
+    if (!stream || !currentWorkspace) return;
+    try {
+      setIsConfirmingInstagram(prev => ({ ...prev, [platform.id]: true }));
+      console.log("[NexaSocial Studio] ▶ Confirming Instagram Live broadcast...", {
+        streamId: stream.id,
+        platformId: platform.id,
+      });
+
+      const res = await livestreamService.confirmInstagramLive(stream.id, currentWorkspace.id, {
+        platformId: platform.id,
+      });
+
+      console.log("[NexaSocial Studio] ✔ Instagram Live confirmed:", res);
+
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.streams.detail(stream.id),
+      });
+
+      toast.success(res.message || "Instagram broadcast confirmed as LIVE!");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[NexaSocial Studio] ✖ Instagram Confirm Error:", err);
+      toast.error(`Instagram live confirmation notice: ${msg}`);
+    } finally {
+      setIsConfirmingInstagram(prev => ({ ...prev, [platform.id]: false }));
+    }
+  };
+
+  const handleSaveKey = async (platform: StreamPlatform) => {
+    const key = customKeys[platform.id];
+    if (!key?.trim() || !stream || !currentWorkspace) return;
     try {
       await updateStream({
         id: stream.id,
         workspaceId: currentWorkspace.id,
-        payload: { youtubeStreamKey: customKey.trim() },
+        payload: { customStreamKey: key.trim(), platformId: platform.id } as any,
       });
-      setIsEditingKey(false);
-      toast.success("YouTube Live Stream Key bound! Video feed connected.");
+      setEditingKeys(prev => ({ ...prev, [platform.id]: false }));
+      toast.success(`${platform.connectedAccount?.platformName || 'Platform'} Stream Key saved!`);
+
+      const pName = (platform.connectedAccount?.platformName || '').toUpperCase();
+      if (pName === 'FACEBOOK') {
+        void handleVerifyFacebookSource({ ...platform, streamKey: key.trim() });
+      }
     } catch {
       // Handled by toast
     }
   };
 
-  const handleCopyKey = () => {
-    const keyToCopy = youtubePlatform?.streamKey || "";
+  const handleCopyKey = (platform: StreamPlatform) => {
+    const keyToCopy = platform.streamKey || "";
     if (keyToCopy) {
       navigator.clipboard.writeText(keyToCopy);
-      setCopiedKey(true);
+      setCopiedKeys(prev => ({ ...prev, [platform.id]: true }));
       toast.success("Stream Key copied to clipboard!");
-      setTimeout(() => setCopiedKey(false), 2000);
+      setTimeout(() => setCopiedKeys(prev => ({ ...prev, [platform.id]: false })), 2000);
     }
   };
 
-  const rawStreamId = youtubePlatform?.platformStreamId || "";
-  const channelUserId =
-    youtubePlatform?.connectedAccount?.platformUserId ||
-    youtubePlatform?.connectedAccount?.platformAccountId ||
-    "";
+  const handleSaveUrl = async (platform: StreamPlatform) => {
+    const url = customUrls[platform.id];
+    if (!url?.trim() || !stream || !currentWorkspace) return;
+    const trimmed = url.trim();
+    if (!/^rtmps?:\/\//i.test(trimmed)) {
+      toast.error("Invalid URL: Must start with rtmp:// or rtmps://");
+      return;
+    }
+    try {
+      await updateStream({
+        id: stream.id,
+        workspaceId: currentWorkspace.id,
+        payload: { customStreamUrl: trimmed, platformId: platform.id } as any,
+      });
+      setEditingUrls(prev => ({ ...prev, [platform.id]: false }));
+      toast.success(`${platform.connectedAccount?.platformName || 'Platform'} Endpoint URL saved!`);
 
-  const isRealYouTubeVideoId =
-    Boolean(rawStreamId) &&
-    !rawStreamId.startsWith("mock") &&
-    rawStreamId.length >= 8;
+      const pName = (platform.connectedAccount?.platformName || '').toUpperCase();
+      if (pName === 'FACEBOOK') {
+        void handleVerifyFacebookSource({ ...platform, streamUrl: trimmed });
+      }
+    } catch {
+      // Handled by toast
+    }
+  };
 
-  let youtubeWatchUrl = "https://www.youtube.com/@NexaSocial-101/live";
-  if (isRealYouTubeVideoId) {
-    youtubeWatchUrl = `https://www.youtube.com/watch?v=${rawStreamId}`;
-  } else if (channelUserId && channelUserId.startsWith("UC")) {
-    youtubeWatchUrl = `https://www.youtube.com/channel/${channelUserId}/live`;
-  } else if (channelUserId && channelUserId.startsWith("@")) {
-    youtubeWatchUrl = `https://www.youtube.com/${channelUserId}/live`;
-  } else {
-    youtubeWatchUrl = "https://www.youtube.com/live";
-  }
+  const handleCopyUrl = (platform: StreamPlatform) => {
+    const urlToCopy = platform.streamUrl || "";
+    if (urlToCopy) {
+      navigator.clipboard.writeText(urlToCopy);
+      setCopiedUrls(prev => ({ ...prev, [platform.id]: true }));
+      toast.success("RTMPS URL copied to clipboard!");
+      setTimeout(() => setCopiedUrls(prev => ({ ...prev, [platform.id]: false })), 2000);
+    }
+  };
+
+  const getPlatformWatchUrl = (platform: StreamPlatform) => {
+    if ((platform as any).viewerUrl) return (platform as any).viewerUrl;
+
+    const pName = (platform.connectedAccount?.platformName || (platform.connectedAccount as any)?.platform || "").toUpperCase();
+    const rawStreamId = platform.platformStreamId || "";
+    const channelUserId = platform.connectedAccount?.platformUserId || (platform.connectedAccount as any)?.platformAccountId || "";
+
+    if (pName === 'YOUTUBE') {
+      const isRealId = Boolean(rawStreamId) && !rawStreamId.startsWith("mock") && rawStreamId.length >= 8;
+      if (isRealId) return `https://www.youtube.com/watch?v=${rawStreamId}`;
+      if (channelUserId && channelUserId.startsWith("UC")) return `https://www.youtube.com/channel/${channelUserId}/live`;
+      if (channelUserId && channelUserId.startsWith("@")) return `https://www.youtube.com/${channelUserId}/live`;
+      return "https://www.youtube.com/live";
+    }
+
+    if (pName === 'FACEBOOK') {
+      const isRealId = Boolean(rawStreamId) && !rawStreamId.startsWith("mock") && rawStreamId.length >= 8;
+      // If we don't have viewerUrl, it means it's either not published yet, or we're falling back
+      if (isRealId) return `https://www.facebook.com/${rawStreamId}`;
+      if (channelUserId) return `https://www.facebook.com/${channelUserId}/live_videos`;
+      return "https://www.facebook.com/live";
+    }
+
+    if (pName === 'INSTAGRAM') {
+      const username = platform.connectedAccount?.metadata?.username || platform.connectedAccount?.accountName || platform.connectedAccount?.name;
+      if (username) return `https://www.instagram.com/${username}/live/`;
+      return "https://www.instagram.com/";
+    }
+
+    return "#";
+  };
+
+  const getInstagramProducerUrl = () => {
+    return "https://www.instagram.com/live/producer";
+  };
+
+  const getFacebookProducerUrl = (p: StreamPlatform) => {
+    if ((p as any).producerUrl) return (p as any).producerUrl;
+    if (!p.facebookLiveVideoId) return "https://www.facebook.com/live/producer";
+    const pageId = p.facebookPageId || p.connectedAccount?.platformUserId || '1275681598955336';
+    return `https://www.facebook.com/${pageId}/live_producer/?broadcast_id=${p.facebookLiveVideoId}`;
+  };
 
   const getMasterBroadcastStream = useCallback(() => {
     if (masterBroadcastStreamRef.current) {
@@ -251,7 +505,7 @@ export default function StreamControlStudioPage() {
         audioDestinationRef.current
       ) {
         if (audioContextRef.current.state === "suspended") {
-          audioContextRef.current.resume().catch(() => {});
+          audioContextRef.current.resume().catch(() => { });
         }
         const src =
           audioContextRef.current.createMediaStreamSource(mediaStream);
@@ -287,7 +541,7 @@ export default function StreamControlStudioPage() {
           cameraVideoRef.current = v;
         }
         cameraVideoRef.current.srcObject = mediaStream;
-        await cameraVideoRef.current.play().catch(() => {});
+        await cameraVideoRef.current.play().catch(() => { });
         connectAudioToMixer(mediaStream);
       }
 
@@ -311,19 +565,19 @@ export default function StreamControlStudioPage() {
 
   const startScreenShare = async () => {
     try {
-      if (isCameraOn) {
-        stopCamera();
-      }
       let screenStream: MediaStream | null = null;
       try {
         screenStream = await navigator.mediaDevices.getDisplayMedia({
           video: { width: { ideal: 1920 }, height: { ideal: 1080 } },
           audio: true,
         });
-      } catch {
-        screenStream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-        });
+      } catch (err) {
+        console.warn("Display media with audio failed, trying video only", err);
+        throw err;
+      }
+
+      if (isCameraOn) {
+        stopCamera();
       }
 
       if (screenStream) {
@@ -336,7 +590,7 @@ export default function StreamControlStudioPage() {
           screenVideoRef.current = v;
         }
         screenVideoRef.current.srcObject = screenStream;
-        await screenVideoRef.current.play().catch(() => {});
+        await screenVideoRef.current.play().catch(() => { });
         connectAudioToMixer(screenStream);
 
         const videoTrack = screenStream.getVideoTracks()[0];
@@ -367,7 +621,7 @@ export default function StreamControlStudioPage() {
 
   useEffect(() => {
     const stream = getMasterBroadcastStream();
-    let animationFrameId: number;
+    let timeoutId: ReturnType<typeof setTimeout>;
     let frame = 0;
 
     const render = () => {
@@ -410,23 +664,24 @@ export default function StreamControlStudioPage() {
           }
         }
       }
-      animationFrameId = requestAnimationFrame(render);
+      timeoutId = setTimeout(render, 1000 / 30);
     };
 
     render();
 
     if (videoRef.current && videoRef.current.srcObject !== stream) {
       videoRef.current.srcObject = stream;
-      videoRef.current.play().catch(() => {});
+      videoRef.current.play().catch(() => { });
     }
 
     return () => {
-      cancelAnimationFrame(animationFrameId);
+      clearTimeout(timeoutId);
     };
   }, [isCameraOn, isScreenSharing, getMasterBroadcastStream]);
 
   const shouldPublishMedia =
-    (isStarting || stream?.status === "LIVE") && Boolean(activeSocket);
+    (stream?.status === "LIVE" || isCameraOn || isScreenSharing) &&
+    Boolean(activeSocket);
 
   useEffect(() => {
     const masterStream = getMasterBroadcastStream();
@@ -508,9 +763,9 @@ export default function StreamControlStudioPage() {
       if (!isCameraOn && !isScreenSharing) {
         await startCamera();
       }
-      toast.info("Connecting media stream to YouTube...");
+      toast.info("Connecting media stream to platforms...");
       await startStream({ id: stream.id, workspaceId: currentWorkspace!.id });
-      toast.success("Broadcasting to YouTube & social destinations live!");
+      toast.success("Broadcasting to destinations live!");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(`Broadcast start error: ${msg}`);
@@ -532,7 +787,17 @@ export default function StreamControlStudioPage() {
       stopCamera();
       stopScreenShare();
       await stopStream({ id: stream.id, workspaceId: currentWorkspace!.id });
-      toast.success("Broadcast completed and stream closed. Redirecting...");
+
+      const hasManualPlatforms = platforms.some(p =>
+        p.connectedAccount?.platformName?.toUpperCase() === 'FACEBOOK' && p.streamUrl
+      );
+
+      if (hasManualPlatforms) {
+        toast.success("Stream stopped locally. Don't forget to click 'End Live Video' on Facebook Live Producer!");
+      } else {
+        toast.success("Broadcast completed and stream closed. Redirecting...");
+      }
+
       router.push("/streams");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -545,42 +810,79 @@ export default function StreamControlStudioPage() {
   return (
     <div className="space-y-8">
       <PageHeader
-        title={stream.title}
-        description="Live Control Studio — Monitor metrics, manage broadcasting nodes, and chat."
+        title={
+          <div className="flex items-center gap-2">
+            {stream.title}
+            {stream.status !== "LIVE" && !isEditingMeta && (
+              <button onClick={() => setIsEditingMeta(true)} className="text-muted-foreground hover:text-white transition-colors">
+                <Edit3 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        }
+        description={stream.description || "Live Control Studio — Monitor metrics, manage broadcasting nodes, and chat."}
         badge={stream.status}
         action={
           <div className="flex items-center gap-3">
-            {youtubePlatform && (
-              <div className="flex items-center gap-2">
-                {youtubePlatform.status === "LIVE" ? (
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                    🟢 YouTube LIVE
-                  </span>
-                ) : youtubePlatform.status === "PENDING" ? (
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
-                    🟡 YouTube Ingestion Pending...
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-zinc-500/10 text-zinc-400 border border-zinc-500/30">
-                    ⚪ YouTube Offline
-                  </span>
-                )}
-                <Button
-                  variant="outline"
-                  asChild
-                  className="h-10 text-xs font-semibold border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300 shadow-sm"
-                >
-                  <a
-                    href={youtubeWatchUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5 mr-2" />
-                    Watch on YouTube 🔴
-                  </a>
-                </Button>
-              </div>
-            )}
+            {platforms.map(platform => {
+              const pName = platform.connectedAccount?.platformName?.toUpperCase() || 'UNKNOWN';
+              const config = PLATFORM_CONFIG[pName as keyof typeof PLATFORM_CONFIG] || { name: pName, color: '#aaa', icon: '🌍' };
+
+              return (
+                <div key={platform.id} className="flex items-center gap-2 mr-2">
+                  {platform.status === "LIVE" ? (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                      🟢 {config.name} LIVE
+                    </span>
+                  ) : platform.status === "WAITING_FOR_PLATFORM_PREVIEW" ? (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/30">
+                      🔵 {config.name} Preview Ready
+                    </span>
+                  ) : platform.status === "PENDING" || platform.status === "SCHEDULED" ? (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                      🟡 {config.name} Pending...
+                    </span>
+                  ) : platform.status === "FAILED" ? (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/30">
+                      🔴 {config.name} Failed
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-zinc-500/10 text-zinc-400 border border-zinc-500/30">
+                      ⚪ {config.name} Offline
+                    </span>
+                  )}
+                  {pName === 'FACEBOOK' && !((platform as any).viewerUrl) ? (
+                    <Button
+                      variant="outline"
+                      disabled
+                      className="h-10 text-xs font-semibold shadow-sm cursor-not-allowed opacity-70"
+                      style={{ borderColor: `${config.color}30`, backgroundColor: `${config.color}10`, color: config.color }}
+                      title={`Your ${config.name} watch link will be available after the broadcast is published.`}
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 mr-2" />
+                      Watch on {config.name} 🔴
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      asChild
+                      className="h-10 text-xs font-semibold shadow-sm"
+                      style={{ borderColor: `${config.color}30`, backgroundColor: `${config.color}10`, color: config.color }}
+                    >
+                      <a
+                        href={getPlatformWatchUrl(platform)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 mr-2" />
+                        Watch on {config.name} 🔴
+                      </a>
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+
             {stream.status === "LIVE" ? (
               <Button
                 onClick={handleStop}
@@ -602,13 +904,13 @@ export default function StreamControlStudioPage() {
             ) : (
               <Button
                 onClick={handleStart}
-                disabled={isStarting}
+                disabled={isStarting || stream.status === "FAILED"}
                 className="h-10 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-600/20"
               >
                 {isStarting ? (
                   <>
                     <span className="h-3.5 w-3.5 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                    Connecting to YouTube...
+                    Connecting...
                   </>
                 ) : (
                   <>
@@ -621,6 +923,41 @@ export default function StreamControlStudioPage() {
           </div>
         }
       />
+
+      {isEditingMeta && (
+        <Card className="glass-panel border-border/50">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">Edit Stream Details (Post Details)</CardTitle>
+            <CardDescription className="text-xs">
+              These details are sent to platforms (like Facebook Live API) to complete your post information automatically.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-muted-foreground">Title</label>
+              <Input
+                value={metaTitle}
+                onChange={(e) => setMetaTitle(e.target.value)}
+                placeholder="Awesome Live Stream"
+                className="h-9 text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-muted-foreground">Description</label>
+              <Input
+                value={metaDescription}
+                onChange={(e) => setMetaDescription(e.target.value)}
+                placeholder="Join me live!"
+                className="h-9 text-sm"
+              />
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <Button size="sm" variant="ghost" onClick={() => setIsEditingMeta(false)} className="h-8">Cancel</Button>
+              <Button size="sm" onClick={handleSaveMeta} className="h-8 bg-violet-600 hover:bg-violet-700">Save Details</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Main Studio View & Control Panels Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -636,7 +973,7 @@ export default function StreamControlStudioPage() {
                       const masterStream = masterBroadcastStreamRef.current;
                       if (node && masterStream) {
                         node.srcObject = masterStream;
-                        node.play().catch(() => {});
+                        node.play().catch(() => { });
                       }
                     }}
                     autoPlay
@@ -670,12 +1007,16 @@ export default function StreamControlStudioPage() {
                     <p className="text-base font-bold text-white uppercase tracking-wider">
                       {stream.status === "LIVE"
                         ? "Broadcasting Live Stream"
-                        : "Live Studio Ready"}
+                        : stream.status === "FAILED"
+                          ? "Broadcast Failed"
+                          : "Live Studio Ready"}
                     </p>
                     <p className="text-xs text-zinc-400">
                       {stream.status === "LIVE"
                         ? "Multi-destination broadcasting nodes active. Enable camera or share your screen below."
-                        : "Enable camera or share your screen to preview and broadcast to connected destinations."}
+                        : stream.status === "FAILED"
+                          ? "Failed to connect to one or more platforms. Please check settings."
+                          : "Enable camera or share your screen to preview and broadcast to connected destinations."}
                     </p>
                   </div>
 
@@ -743,100 +1084,950 @@ export default function StreamControlStudioPage() {
               </div>
             </div>
 
-            <CardContent className="p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-base font-bold flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span>
-                  Automated YouTube Live Streaming Pipeline
-                </h3>
-                {youtubePlatform && (
-                  <Badge
-                    variant="outline"
-                    className="border-red-500/30 text-red-400 text-[10px] uppercase font-bold"
-                  >
-                    {youtubePlatform.status || "CONNECTED"}
-                  </Badge>
-                )}
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                <div className="space-y-1">
-                  <span className="text-muted-foreground font-semibold">
-                    YouTube RTMPS Endpoint
-                  </span>
-                  <div className="p-2.5 rounded-lg bg-accent/30 font-mono text-[11px] truncate border border-border/40 text-rose-300">
-                    {youtubePlatform?.streamUrl ||
-                      "rtmps://a.rtmps.youtube.com/live2"}
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground font-semibold flex items-center gap-1">
-                      <Key className="w-3 h-3 text-red-400" />
-                      YouTube Live Stream Key
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsEditingKey(!isEditingKey);
-                        if (!isEditingKey) setCustomKey(youtubePlatform?.streamKey || "");
-                      }}
-                      className="text-[11px] font-bold text-violet-400 hover:text-violet-300 underline flex items-center gap-1"
-                    >
-                      <Edit3 className="w-3 h-3" />
-                      {isEditingKey ? "Cancel" : "Edit Key"}
-                    </button>
-                  </div>
-                  {isEditingKey ? (
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={customKey}
-                        onChange={(e) => setCustomKey(e.target.value)}
-                        placeholder="Paste YouTube Stream Key (e.g. 607j-htbm-1egc-6gwb-dv3j)"
-                        className="h-9 font-mono text-xs bg-black/60 border-violet-500/40 text-white"
-                      />
-                      <Button
-                        size="sm"
-                        onClick={handleSaveKey}
-                        className="h-9 px-3 bg-violet-600 hover:bg-violet-700 text-white font-bold shrink-0 text-xs"
-                      >
-                        Save
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <div className="p-2.5 rounded-lg bg-accent/30 font-mono text-[11px] truncate border border-border/40 flex-1 text-emerald-300">
-                        {youtubePlatform?.streamKey
-                          ? `${youtubePlatform.streamKey.substring(0, 10)}••••••••`
-                          : "••••••••••••••••••••••••"}
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={handleCopyKey}
-                        className="h-9 w-9 shrink-0"
-                      >
-                        {copiedKey ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-500" />
-                        ) : (
-                          <Copy className="w-3.5 h-3.5" />
-                        )}
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {(!youtubePlatform?.streamKey ||
-                youtubePlatform.streamKey.startsWith("x-youtube-key-")) && (
-                <div className="p-3.5 rounded-lg bg-amber-950/40 border border-amber-500/40 text-amber-300 text-xs space-y-2">
-                  <div className="font-bold flex items-center gap-1.5 text-amber-400">
-                    ⚠️ Action Required: Bind Your YouTube Stream Key
-                  </div>
-                  <p className="text-[11px] leading-relaxed text-amber-200/90">
-                    YouTube is currently showing <strong>&quot;Waiting for NexaSocial&quot;</strong> because a valid YouTube Stream Key is needed for video packet ingestion. Click <strong>Edit Key</strong> above, paste your official <strong>YouTube Stream Key</strong> (e.g. <code className="text-amber-200 font-mono bg-black/40 px-1 rounded">607j-htbm-1egc-6gwb-dv3j</code> from YouTube Studio), and click <strong>Save</strong>!
-                  </p>
+            <CardContent className="p-5 space-y-6">
+              {platforms.length === 0 && (
+                <div className="text-center p-4 text-xs text-muted-foreground">
+                  No destinations connected to this stream.
                 </div>
               )}
+
+              {platforms.map(platform => {
+                const pName = platform.connectedAccount?.platformName?.toUpperCase() || 'UNKNOWN';
+                const config = PLATFORM_CONFIG[pName as keyof typeof PLATFORM_CONFIG] || { name: pName, color: '#aaa', icon: '🌍' };
+                const isEditing = editingKeys[platform.id] || false;
+                const isCopied = copiedKeys[platform.id] || false;
+                const currentVal = customKeys[platform.id] !== undefined ? customKeys[platform.id] : (platform.streamKey || "");
+                const isMissingKey = !platform.streamKey || platform.streamKey.startsWith("x-youtube-key-");
+
+                const isEditingUrl = editingUrls[platform.id] || false;
+                const isCopiedUrl = copiedUrls[platform.id] || false;
+                const currentUrlVal = customUrls[platform.id] !== undefined ? customUrls[platform.id] : (platform.streamUrl || "rtmps://live-api-s.facebook.com:443/rtmp/");
+
+                if (pName === 'FACEBOOK') {
+                  const step1Complete = Boolean(platform.sourceStatus === 'CONNECTED' || (platform as any).sourceConnected);
+                  const step2Complete = Boolean(platform.metadataStatus === 'COMPLETED' || (platform as any).metadataCompleted);
+                  const step3Complete = Boolean(platform.publishStatus === 'PUBLISHED' || platform.status === 'LIVE');
+                  const stepCount = (step1Complete ? 1 : 0) + (step2Complete ? 1 : 0) + (step3Complete ? 1 : 0);
+
+                  return (
+                    <div key={platform.id} className="space-y-4 pb-6 border-b border-border/40 last:border-0 last:pb-0">
+                      {/* Facebook Header with Progress */}
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl bg-linear-to-r from-blue-950/40 via-indigo-950/30 to-black/40 border border-blue-500/25">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xl">🌐</span>
+                            <h3 className="text-base font-bold text-white flex items-center gap-2">
+                              Facebook Live Stream Pipeline
+                              <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-400 border-blue-500/30">
+                                3-Step Automated Workflow
+                              </Badge>
+                            </h3>
+                          </div>
+                          <p className="text-xs text-zinc-400">
+                            Page Destination: <strong className="text-white">{platform.connectedAccount?.accountName || platform.connectedAccount?.name || "NexaSocial"}</strong> {platform.facebookPageId && <span className="text-zinc-500 font-mono text-[11px]">(Page ID: {platform.facebookPageId})</span>}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <div className="text-xs font-bold text-white">
+                              {stepCount}/3 Steps Complete
+                            </div>
+                            <div className="text-[10px] text-zinc-400">
+                              {stepCount === 3 ? "Broadcast is Live!" : "Workflow in Progress"}
+                            </div>
+                          </div>
+                          <div className="flex gap-1.5">
+                            <div className={`h-2.5 w-6 rounded-full transition-colors ${step1Complete ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50' : 'bg-zinc-700'}`} title="Step 1: Video Source" />
+                            <div className={`h-2.5 w-6 rounded-full transition-colors ${step2Complete ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50' : 'bg-zinc-700'}`} title="Step 2: Post Details" />
+                            <div className={`h-2.5 w-6 rounded-full transition-colors ${step3Complete ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50' : 'bg-zinc-700'}`} title="Step 3: Go Live" />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Step 1: Connect Video Source */}
+                      <div className={`p-4 rounded-xl border transition-all ${step1Complete ? 'bg-emerald-950/15 border-emerald-500/30' : 'bg-zinc-900/40 border-border/50'}`}>
+                        <div className="flex items-center justify-between pb-3 border-b border-border/30">
+                          <div className="flex items-center gap-2">
+                            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-600/30 text-blue-400 text-xs font-bold border border-blue-500/40">1</span>
+                            <span className="text-sm font-bold text-white">Step 1 — Connect Video Source</span>
+                          </div>
+                          {step1Complete ? (
+                            <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[10px] font-semibold">
+                              <CheckCircle2 className="w-3 h-3 mr-1" />
+                              Video Source Connected
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px] font-semibold">
+                              <AlertTriangle className="w-3 h-3 mr-1" />
+                              Connect Source
+                            </Badge>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs pt-3">
+                          {/* Endpoint */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-zinc-400 font-semibold flex items-center gap-1">
+                                <Globe className="w-3 h-3 text-blue-400" />
+                                Facebook RTMPS Endpoint
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingUrls(prev => ({ ...prev, [platform.id]: !isEditingUrl }));
+                                  if (!isEditingUrl) {
+                                    setCustomUrls(prev => ({ ...prev, [platform.id]: platform.streamUrl || "rtmps://live-api-s.facebook.com:443/rtmp/" }));
+                                  }
+                                }}
+                                className="text-[11px] font-bold text-violet-400 hover:text-violet-300 underline flex items-center gap-1"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                                {isEditingUrl ? "Cancel" : "Edit URL"}
+                              </button>
+                            </div>
+                            {isEditingUrl ? (
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  value={currentUrlVal}
+                                  onChange={(e) => setCustomUrls(prev => ({ ...prev, [platform.id]: e.target.value }))}
+                                  placeholder="rtmps://live-api-s.facebook.com:443/rtmp/"
+                                  className="h-9 font-mono text-xs bg-black/60 border-violet-500/40 text-white"
+                                />
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleSaveUrl(platform)}
+                                  className="h-9 px-3 bg-violet-600 hover:bg-violet-700 text-white font-bold shrink-0 text-xs"
+                                >
+                                  Save
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <div className="p-2.5 rounded-lg bg-accent/30 font-mono text-[11px] truncate border border-border/40 flex-1 text-blue-300">
+                                  {platform.streamUrl || "rtmps://live-api-s.facebook.com:443/rtmp/"}
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  onClick={() => handleCopyUrl(platform)}
+                                  className="h-9 w-9 shrink-0"
+                                >
+                                  {isCopiedUrl ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Stream Key */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-zinc-400 font-semibold flex items-center gap-1">
+                                <Key className="w-3 h-3 text-red-400" />
+                                Facebook Stream Key
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingKeys(prev => ({ ...prev, [platform.id]: !isEditing }));
+                                  if (!isEditing) {
+                                    setCustomKeys(prev => ({ ...prev, [platform.id]: platform.streamKey || "" }));
+                                  }
+                                }}
+                                className="text-[11px] font-bold text-violet-400 hover:text-violet-300 underline flex items-center gap-1"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                                {isEditing ? "Cancel" : "Edit Key"}
+                              </button>
+                            </div>
+                            {isEditing ? (
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  value={currentVal}
+                                  onChange={(e) => setCustomKeys(prev => ({ ...prev, [platform.id]: e.target.value }))}
+                                  placeholder="Paste Facebook Stream Key"
+                                  type="password"
+                                  className="h-9 font-mono text-xs bg-black/60 border-violet-500/40 text-white"
+                                />
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleSaveKey(platform)}
+                                  className="h-9 px-3 bg-violet-600 hover:bg-violet-700 text-white font-bold shrink-0 text-xs"
+                                >
+                                  Save
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <div className="p-2.5 rounded-lg bg-accent/30 font-mono text-[11px] truncate border border-border/40 flex-1 text-emerald-300">
+                                  {platform.streamKey
+                                    ? (showKeys[platform.id] ? platform.streamKey : "••••••••••••••••")
+                                    : "Configuration Required (Add Key)"}
+                                </div>
+                                {platform.streamKey && (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      onClick={() => setShowKeys(prev => ({ ...prev, [platform.id]: !prev[platform.id] }))}
+                                      className="h-9 w-9 shrink-0 text-zinc-400 hover:text-white"
+                                      title={showKeys[platform.id] ? "Hide Stream Key" : "Reveal Stream Key"}
+                                    >
+                                      {showKeys[platform.id] ? (
+                                        <EyeOff className="w-3.5 h-3.5" />
+                                      ) : (
+                                        <Eye className="w-3.5 h-3.5" />
+                                      )}
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      onClick={() => handleCopyKey(platform)}
+                                      className="h-9 w-9 shrink-0"
+                                      title="Copy Stream Key"
+                                    >
+                                      {isCopied ? (
+                                        <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                      ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                      )}
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 mt-3 border-t border-border/20 text-xs">
+                          <div className="flex items-center gap-2">
+                            {isCameraOn || isScreenSharing ? (
+                              <span className="text-emerald-400 flex items-center gap-1 font-medium">
+                                <Radio className="w-3.5 h-3.5 animate-pulse" />
+                                Live video feed sending to Facebook ingest relay
+                              </span>
+                            ) : (
+                              <span className="text-amber-400/90 flex items-center gap-1">
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                                Camera offline. Click &quot;Enable Camera&quot; above to feed video to Facebook.
+                              </span>
+                            )}
+                          </div>
+                          <Button
+                            size="sm"
+                            onClick={() => handleVerifyFacebookSource(platform)}
+                            disabled={isVerifyingSource[platform.id]}
+                            className="h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold self-start sm:self-auto"
+                          >
+                            {isVerifyingSource[platform.id] ? (
+                              <>
+                                <span className="h-3 w-3 mr-1.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                                Verifying...
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                                Test & Verify Source Connection
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Step 2: Complete Post Details */}
+                      <div className={`p-4 rounded-xl border transition-all ${step2Complete ? 'bg-emerald-950/15 border-emerald-500/30' : 'bg-zinc-900/40 border-border/50'}`}>
+                        <div className="flex items-center justify-between pb-3 border-b border-border/30">
+                          <div className="flex items-center gap-2">
+                            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-400 text-xs font-bold border border-indigo-500/40">2</span>
+                            <span className="text-sm font-bold text-white">Step 2 — Complete Post Details Automatically</span>
+                          </div>
+                          {step2Complete ? (
+                            <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[10px] font-semibold">
+                              <CheckCircle2 className="w-3 h-3 mr-1" />
+                              Details Confirmed by Facebook
+                            </Badge>
+                          ) : platform.metadataStatus === 'FAILED' ? (
+                            <Badge className="bg-rose-500/15 text-rose-400 border-rose-500/30 text-[10px] font-semibold">
+                              <AlertCircle className="w-3 h-3 mr-1" />
+                              Sync Failed
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px] font-semibold">
+                              <AlertTriangle className="w-3 h-3 mr-1" />
+                              Pending Sync
+                            </Badge>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs pt-3">
+                          <div className="p-3 rounded-lg bg-black/40 border border-border/30 space-y-1">
+                            <span className="text-zinc-400 text-[11px] font-medium">Broadcast Title</span>
+                            <p className="font-semibold text-white truncate">{stream.title}</p>
+                          </div>
+                          <div className="p-3 rounded-lg bg-black/40 border border-border/30 space-y-1">
+                            <span className="text-zinc-400 text-[11px] font-medium">Broadcast Description</span>
+                            <p className="text-zinc-300 truncate">{stream.description || "No description provided"}</p>
+                          </div>
+                          <div className="p-3 rounded-lg bg-black/40 border border-border/30 space-y-1">
+                            <span className="text-zinc-400 text-[11px] font-medium">Facebook Live Video ID</span>
+                            {platform.facebookLiveVideoId ? (
+                              <div className="flex items-center gap-1.5">
+                                <a
+                                  href={getFacebookProducerUrl(platform)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-mono text-emerald-300 font-semibold underline hover:text-emerald-200 truncate flex items-center gap-1"
+                                  title="Open this exact broadcast in Facebook Live Producer"
+                                >
+                                  {platform.facebookLiveVideoId}
+                                  <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                                </a>
+                              </div>
+                            ) : (
+                              <p className="font-mono text-zinc-500 truncate">Generated automatically on sync</p>
+                            )}
+                          </div>
+                          <div className="p-3 rounded-lg bg-black/40 border border-border/30 space-y-1">
+                            <span className="text-zinc-400 text-[11px] font-medium">Facebook Destination</span>
+                            <p className="text-white font-medium truncate">{platform.connectedAccount?.accountName || platform.connectedAccount?.name || "Connected Facebook Page"}</p>
+                          </div>
+                        </div>
+
+                        {platform.facebookLastError && platform.metadataStatus === 'FAILED' && (
+                          <div className="p-3 rounded-lg bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs space-y-1 mt-3">
+                            <div className="font-bold flex items-center gap-1.5 text-rose-400">
+                              <AlertCircle className="w-3.5 h-3.5" />
+                              Facebook API Error (Code: {platform.facebookLastErrorCode || 'FB_ERROR'})
+                            </div>
+                            <p className="text-[11px] text-rose-200/90 leading-relaxed">{platform.facebookLastError}</p>
+                          </div>
+                        )}
+
+                        {step2Complete && platform.facebookLiveVideoId && (
+                          <div className="p-3 rounded-lg bg-blue-950/40 border border-blue-500/40 text-blue-200 text-xs space-y-2 mt-3">
+                            <div className="font-bold flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                              <span className="flex items-center gap-1.5 text-blue-300">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                                Post details confirmed on Facebook Page: {platform.connectedAccount?.name || 'NexaSocial'}
+                              </span>
+                              <Button
+                                size="sm"
+                                asChild
+                                className="h-7 text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow self-start sm:self-auto"
+                              >
+                                <a
+                                  href={getFacebookProducerUrl(platform)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <ExternalLink className="w-3 h-3 mr-1" />
+                                  Open in Live Producer ↗
+                                </a>
+                              </Button>
+                            </div>
+                            <p className="text-[11px] text-zinc-300 leading-relaxed">
+                              This live broadcast is synced to Facebook Page: <strong className="text-white">{platform.connectedAccount?.name || 'NexaSocial'}</strong>. Click &quot;Open in Live Producer&quot; to inspect this stream directly on Facebook (make sure your Facebook account is switched to your Page profile).
+                            </p>
+                          </div>
+                        )}
+
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 mt-3 border-t border-border/20 text-xs">
+                          <p className="text-zinc-400 text-[11px]">
+                            Metadata is automatically synced to the Facebook Live Video object via Graph API.
+                          </p>
+                          <Button
+                            size="sm"
+                            onClick={() => handleSyncFacebookMetadata(platform)}
+                            disabled={isSyncingMeta[platform.id]}
+                            className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold self-start sm:self-auto"
+                          >
+                            {isSyncingMeta[platform.id] ? (
+                              <>
+                                <span className="h-3 w-3 mr-1.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                                Syncing with Facebook...
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                                Sync Post Details with Facebook
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Step 3: Go Live Now */}
+                      <div className={`p-4 rounded-xl border transition-all ${step3Complete ? 'bg-emerald-950/20 border-emerald-500/40' : 'bg-zinc-900/40 border-border/50'}`}>
+                        <div className="flex items-center justify-between pb-3 border-b border-border/30">
+                          <div className="flex items-center gap-2">
+                            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600/30 text-emerald-400 text-xs font-bold border border-emerald-500/40">3</span>
+                            <span className="text-sm font-bold text-white">Step 3 — Go Live Now</span>
+                          </div>
+                          {step3Complete ? (
+                            <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[10px] font-bold animate-pulse">
+                              ● BROADCAST IS LIVE
+                            </Badge>
+                          ) : platform.publishStatus === 'FAILED' ? (
+                            <Badge className="bg-rose-500/15 text-rose-400 border-rose-500/30 text-[10px] font-semibold">
+                              <AlertCircle className="w-3 h-3 mr-1" />
+                              Publish Failed
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-blue-500/15 text-blue-400 border-blue-500/30 text-[10px] font-semibold">
+                              Ready to Publish
+                            </Badge>
+                          )}
+                        </div>
+
+                        {platform.facebookLastError && platform.publishStatus === 'FAILED' && (
+                          <div className="p-3 rounded-lg bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs space-y-1 my-3">
+                            <div className="font-bold flex items-center gap-1.5 text-rose-400">
+                              <AlertCircle className="w-3.5 h-3.5" />
+                              Facebook Publish Error (Code: {platform.facebookLastErrorCode || 'PUBLISH_FAILED'})
+                            </div>
+                            <p className="text-[11px] text-rose-200/90 leading-relaxed">{platform.facebookLastError}</p>
+                          </div>
+                        )}
+
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 text-xs">
+                          {step3Complete ? (
+                            <div className="space-y-1">
+                              <p className="text-emerald-400 font-bold flex items-center gap-1.5">
+                                <CheckCircle2 className="w-4 h-4" />
+                                Broadcast is streaming live to your Facebook audience!
+                              </p>
+                              {platform.publishedAt && (
+                                <p className="text-[11px] text-zinc-400">
+                                  Published at: {new Date(platform.publishedAt).toLocaleTimeString()}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-zinc-300 text-[11px] leading-relaxed">
+                              Execute the verified Facebook Graph API transition to transition from UNPUBLISHED to LIVE_NOW.
+                            </p>
+                          )}
+
+                          <div className="flex items-center gap-2 self-start sm:self-auto">
+                            {step3Complete ? (
+                              <Button
+                                size="sm"
+                                asChild
+                                className="h-9 px-4 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/30"
+                              >
+                                <a
+                                  href={getPlatformWatchUrl(platform)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                                  Watch on Facebook 🔴
+                                </a>
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                onClick={() => handlePublishFacebook(platform)}
+                                disabled={isPublishingFb[platform.id] || stream.status === "LIVE"}
+                                className="h-9 px-4 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20"
+                              >
+                                {isPublishingFb[platform.id] ? (
+                                  <>
+                                    <span className="h-3 w-3 mr-1.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                                    Publishing to Facebook...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Play className="w-3.5 h-3.5 mr-1.5" />
+                                    Go Live on Facebook Now
+                                  </>
+                                )}
+                              </Button>
+                            )}
+
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              asChild
+                              className="h-9 text-xs text-zinc-400 hover:text-white"
+                            >
+                              <a
+                                href={getFacebookProducerUrl(platform)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={
+                                  platform.facebookLiveVideoId
+                                    ? `Open Facebook Live Producer for Broadcast #${platform.facebookLiveVideoId}`
+                                    : "Open Facebook Live Producer in browser"
+                                }
+                              >
+                                <ExternalLink className="w-3.5 h-3.5 mr-1" />
+                                {platform.facebookLiveVideoId ? "Open in Live Producer ↗" : "Live Producer"}
+                              </a>
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (pName === 'INSTAGRAM') {
+                  const isLive = platform.status === 'LIVE' || stream.status === 'LIVE';
+                  const isWaitingPreview = platform.status === 'WAITING_FOR_PLATFORM_PREVIEW';
+                  const accountType = (platform.connectedAccount?.metadata?.accountType || '').toUpperCase();
+                  const isPersonalAccount = accountType === 'PERSONAL';
+                  const username = platform.connectedAccount?.metadata?.username || platform.connectedAccount?.name || 'Instagram Account';
+
+                  return (
+                    <div key={platform.id} className="space-y-4 pb-6 border-b border-border/40 last:border-0 last:pb-0">
+                      {/* Instagram Header with Capability and Mode */}
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl bg-linear-to-r from-pink-950/40 via-purple-950/30 to-black/40 border border-pink-500/25">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xl">📸</span>
+                            <h3 className="text-base font-bold text-white flex items-center gap-2">
+                              Instagram Live Stream Pipeline
+                              <Badge variant="outline" className="text-[10px] bg-pink-500/10 text-pink-400 border-pink-500/30">
+                                Mode B: Live Producer Desktop Workflow
+                              </Badge>
+                            </h3>
+                          </div>
+                          <p className="text-xs text-zinc-400">
+                            Connected Account: <strong className="text-white">@{username}</strong>
+                            {accountType && (
+                              <span className="ml-2 font-mono text-[11px] text-zinc-500">
+                                ({accountType === 'PERSONAL' ? 'Personal Account ⚠️' : `${accountType} Account`})
+                              </span>
+                            )}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {isLive ? (
+                            <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[10px] font-bold animate-pulse">
+                              ● BROADCAST IS LIVE
+                            </Badge>
+                          ) : isWaitingPreview ? (
+                            <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px] font-semibold">
+                              <AlertTriangle className="w-3 h-3 mr-1" />
+                              Transmitting / Awaiting Live Producer
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-pink-500/15 text-pink-400 border-pink-500/30 text-[10px] font-semibold">
+                              Ready for Ingest
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Personal account warning if detected */}
+                      {isPersonalAccount && (
+                        <div className="p-3 rounded-lg bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs space-y-1">
+                          <div className="font-bold flex items-center gap-1.5 text-amber-400">
+                            <AlertCircle className="w-3.5 h-3.5" />
+                            Personal Account Detected
+                          </div>
+                          <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                            Instagram Live Producer is officially available for <strong>Professional (Creator or Business)</strong> accounts. If you cannot access Live Producer on instagram.com, switch your account in the Instagram mobile app settings under &quot;Account type and tools&quot;.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Step 1: Connect Ingest & Stream Key */}
+                      <div className="p-4 rounded-xl border bg-zinc-900/40 border-border/50 space-y-3">
+                        <div className="flex items-center justify-between pb-2 border-b border-border/30">
+                          <div className="flex items-center gap-2">
+                            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-pink-600/30 text-pink-400 text-xs font-bold border border-pink-500/40">1</span>
+                            <span className="text-sm font-bold text-white">Step 1 — Instagram Live Producer Ingest Setup</span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            asChild
+                            className="h-7 text-xs text-pink-400 hover:text-pink-300 hover:bg-pink-500/10"
+                          >
+                            <a
+                              href={getInstagramProducerUrl()}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <ExternalLink className="w-3 h-3 mr-1" />
+                              Open Live Producer ↗
+                            </a>
+                          </Button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                          {/* Endpoint */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-zinc-400 font-semibold flex items-center gap-1">
+                                <Globe className="w-3 h-3 text-pink-400" />
+                                Instagram RTMPS Ingest URL
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingUrls(prev => ({ ...prev, [platform.id]: !isEditingUrl }));
+                                  if (!isEditingUrl) {
+                                    setCustomUrls(prev => ({ ...prev, [platform.id]: platform.streamUrl || "rtmps://live-upload.instagram.com:443/rtmp/" }));
+                                  }
+                                }}
+                                className="text-[11px] font-bold text-pink-400 hover:text-pink-300 underline flex items-center gap-1"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                                {isEditingUrl ? "Cancel" : "Edit URL"}
+                              </button>
+                            </div>
+                            {isEditingUrl ? (
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  value={currentUrlVal}
+                                  onChange={(e) => setCustomUrls(prev => ({ ...prev, [platform.id]: e.target.value }))}
+                                  placeholder="rtmps://live-upload.instagram.com:443/rtmp/"
+                                  className="h-9 font-mono text-xs bg-black/60 border-pink-500/40 text-white"
+                                />
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleSaveUrl(platform)}
+                                  className="h-9 px-3 bg-pink-600 hover:bg-pink-700 text-white font-bold shrink-0 text-xs"
+                                >
+                                  Save
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <div className="p-2.5 rounded-lg bg-accent/30 font-mono text-[11px] truncate border border-border/40 flex-1 text-pink-300">
+                                  {platform.streamUrl || "rtmps://live-upload.instagram.com:443/rtmp/"}
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  onClick={() => handleCopyUrl(platform)}
+                                  className="h-9 w-9 shrink-0"
+                                >
+                                  {isCopiedUrl ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Stream Key */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-zinc-400 font-semibold flex items-center gap-1">
+                                <Key className="w-3 h-3 text-red-400" />
+                                Instagram Stream Key
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingKeys(prev => ({ ...prev, [platform.id]: !isEditing }));
+                                  if (!isEditing) {
+                                    setCustomKeys(prev => ({ ...prev, [platform.id]: platform.streamKey || "" }));
+                                  }
+                                }}
+                                className="text-[11px] font-bold text-pink-400 hover:text-pink-300 underline flex items-center gap-1"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                                {isEditing ? "Cancel" : "Edit Key"}
+                              </button>
+                            </div>
+                            {isEditing ? (
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  value={currentVal}
+                                  onChange={(e) => setCustomKeys(prev => ({ ...prev, [platform.id]: e.target.value }))}
+                                  placeholder="Paste Instagram Stream Key"
+                                  type="password"
+                                  className="h-9 font-mono text-xs bg-black/60 border-pink-500/40 text-white"
+                                />
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleSaveKey(platform)}
+                                  className="h-9 px-3 bg-pink-600 hover:bg-pink-700 text-white font-bold shrink-0 text-xs"
+                                >
+                                  Save
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <div className="p-2.5 rounded-lg bg-accent/30 font-mono text-[11px] truncate border border-border/40 flex-1 text-emerald-300">
+                                  {platform.streamKey
+                                    ? (showKeys[platform.id] ? platform.streamKey : "••••••••••••••••")
+                                    : "Configuration Required (Add Key from Live Producer)"}
+                                </div>
+                                {platform.streamKey && (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      onClick={() => setShowKeys(prev => ({ ...prev, [platform.id]: !prev[platform.id] }))}
+                                      className="h-9 w-9 shrink-0 text-zinc-400 hover:text-white"
+                                      title={showKeys[platform.id] ? "Hide Stream Key" : "Reveal Stream Key"}
+                                    >
+                                      {showKeys[platform.id] ? (
+                                        <EyeOff className="w-3.5 h-3.5" />
+                                      ) : (
+                                        <Eye className="w-3.5 h-3.5" />
+                                      )}
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      onClick={() => handleCopyKey(platform)}
+                                      className="h-9 w-9 shrink-0"
+                                    >
+                                      {isCopied ? (
+                                        <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                      ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                      )}
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <p className="text-[11px] text-zinc-400 leading-relaxed pt-1">
+                          💡 <strong>How to get your Instagram Stream Key:</strong> Log into <a href="https://www.instagram.com/live/producer" target="_blank" rel="noopener noreferrer" className="text-pink-400 underline font-semibold">Instagram Live Producer</a> on your computer, click <em>Create (+) → Live video</em>, give your stream a title, and copy the Stream Key into the field above.
+                        </p>
+                      </div>
+
+                      {/* Step 2: Transmission and Vertical 9:16 pipeline */}
+                      <div className="p-4 rounded-xl border bg-zinc-900/40 border-border/50 space-y-3">
+                        <div className="flex items-center justify-between pb-2 border-b border-border/30">
+                          <div className="flex items-center gap-2">
+                            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-purple-600/30 text-purple-400 text-xs font-bold border border-purple-500/40">2</span>
+                            <span className="text-sm font-bold text-white">Step 2 — Vertical Video Pipeline & Transmission</span>
+                          </div>
+                          <Badge variant="outline" className="text-[10px] text-purple-300 border-purple-500/30">
+                            Auto 9:16 Video Filter Active
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-zinc-300 leading-relaxed">
+                          NexaSocial automatically formats and transcodes your broadcast stream to Instagram native <strong>9:16 portrait video (720x1280 @ 30fps)</strong> with AAC 44.1kHz audio, ensuring compatibility with all mobile viewers.
+                        </p>
+                      </div>
+
+                      {/* Step 3: Go Live & Confirmation */}
+                      <div className={`p-4 rounded-xl border transition-all ${isLive ? 'bg-emerald-950/20 border-emerald-500/40' : 'bg-zinc-900/40 border-border/50'}`}>
+                        <div className="flex items-center justify-between pb-3 border-b border-border/30">
+                          <div className="flex items-center gap-2">
+                            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600/30 text-emerald-400 text-xs font-bold border border-emerald-500/40">3</span>
+                            <span className="text-sm font-bold text-white">Step 3 — Go Live & Broadcast Confirmation</span>
+                          </div>
+                          {isLive ? (
+                            <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[10px] font-bold animate-pulse">
+                              ● BROADCAST IS LIVE
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px] font-semibold">
+                              Awaiting Platform Confirmation
+                            </Badge>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 text-xs">
+                          {isLive ? (
+                            <div className="space-y-1">
+                              <p className="text-emerald-400 font-bold flex items-center gap-1.5">
+                                <CheckCircle2 className="w-4 h-4" />
+                                Broadcast is streaming live on Instagram!
+                              </p>
+                              {platform.publishedAt && (
+                                <p className="text-[11px] text-zinc-400">
+                                  Live since: {new Date(platform.publishedAt).toLocaleTimeString()}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-zinc-300 text-[11px] leading-relaxed">
+                              Once your camera is transmitting, check the preview in <strong>Instagram Live Producer</strong>, click <strong>Go Live</strong> on Instagram, then click <strong>Confirm Live on NexaSocial</strong>.
+                            </p>
+                          )}
+
+                          <div className="flex items-center gap-2 self-start sm:self-auto">
+                            {isLive ? (
+                              <Button
+                                size="sm"
+                                asChild
+                                className="h-9 px-4 text-xs font-bold bg-pink-600 hover:bg-pink-700 text-white shadow-md shadow-pink-600/30"
+                              >
+                                <a
+                                  href={getPlatformWatchUrl(platform)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                                  Watch on Instagram 🔴
+                                </a>
+                              </Button>
+                            ) : (
+                              <>
+                                <Button
+                                  size="sm"
+                                  asChild
+                                  variant="outline"
+                                  className="h-9 px-3 text-xs border-pink-500/40 text-pink-300 hover:bg-pink-500/10"
+                                >
+                                  <a
+                                    href={getInstagramProducerUrl()}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                                    Open Live Producer
+                                  </a>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleConfirmInstagramLive(platform)}
+                                  disabled={isConfirmingInstagram[platform.id] || isLive}
+                                  className="h-9 px-4 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20"
+                                >
+                                  {isConfirmingInstagram[platform.id] ? (
+                                    <>
+                                      <span className="h-3 w-3 mr-1.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                                      Verifying Live State...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                                      Confirm Live on Instagram
+                                    </>
+                                  )}
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={platform.id} className="space-y-4 pb-4 border-b border-border/40 last:border-0 last:pb-0">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-base font-bold flex items-center gap-2">
+                        <span className="text-lg">{config.icon}</span>
+                        {config.name} Streaming Pipeline
+                      </h3>
+                      <Badge
+                        variant="outline"
+                        style={{ borderColor: `${config.color}40`, color: config.color }}
+                        className="text-[10px] uppercase font-bold"
+                      >
+                        {platform.status === "WAITING_FOR_PLATFORM_PREVIEW" ? "PREVIEW READY" : platform.status || "CONNECTED"}
+                      </Badge>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                      <div className="space-y-1">
+                        <span className="text-muted-foreground font-semibold flex justify-between items-center">
+                          {config.name} RTMPS Endpoint
+                        </span>
+                        <div className="p-2.5 rounded-lg bg-accent/30 font-mono text-[11px] truncate border border-border/40 text-rose-300">
+                          {platform.streamUrl || "Waiting for stream initialization..."}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground font-semibold flex items-center gap-1">
+                            <Key className="w-3 h-3 text-red-400" />
+                            {config.name} Stream Key
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingKeys(prev => ({ ...prev, [platform.id]: !isEditing }));
+                              if (!isEditing) {
+                                setCustomKeys(prev => ({ ...prev, [platform.id]: platform.streamKey || "" }));
+                              }
+                            }}
+                            className="text-[11px] font-bold text-violet-400 hover:text-violet-300 underline flex items-center gap-1"
+                          >
+                            <Edit3 className="w-3 h-3" />
+                            {isEditing ? "Cancel" : "Edit Key"}
+                          </button>
+                        </div>
+                        {isEditing ? (
+                          <div className="flex items-center gap-2">
+                            <Input
+                              value={currentVal}
+                              onChange={(e) => setCustomKeys(prev => ({ ...prev, [platform.id]: e.target.value }))}
+                              placeholder={`Paste ${config.name} Stream Key`}
+                              type="password"
+                              className="h-9 font-mono text-xs bg-black/60 border-violet-500/40 text-white"
+                            />
+                            <Button
+                              size="sm"
+                              onClick={() => {
+                                handleSaveKey(platform).then(() => {
+                                  updateStream({
+                                    id: stream.id,
+                                    workspaceId: currentWorkspace.id,
+                                    payload: { customStreamKey: currentVal, platformId: platform.id } as any,
+                                  }).then(() => toast.success("Stream Key updated!"));
+                                })
+                              }}
+                              className="h-9 px-3 bg-violet-600 hover:bg-violet-700 text-white font-bold shrink-0 text-xs"
+                            >
+                              Save
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <div className="p-2.5 rounded-lg bg-accent/30 font-mono text-[11px] truncate border border-border/40 flex-1 text-emerald-300">
+                              {platform.streamKey
+                                ? "••••••••••••••••"
+                                : "••••••••••••••••••••••••"}
+                            </div>
+                            {platform.streamKey && (
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => handleCopyKey(platform)}
+                                className="h-9 w-9 shrink-0"
+                              >
+                                {isCopied ? (
+                                  <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                ) : (
+                                  <Copy className="w-3.5 h-3.5" />
+                                )}
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {isMissingKey && pName === 'YOUTUBE' && (
+                      <div className="p-3.5 rounded-lg bg-amber-950/40 border border-amber-500/40 text-amber-300 text-xs space-y-2 mt-2">
+                        <div className="font-bold flex items-center gap-1.5 text-amber-400">
+                          ⚠️ Action Required: Bind Your YouTube Stream Key
+                        </div>
+                        <p className="text-[11px] leading-relaxed text-amber-200/90">
+                          YouTube is currently showing <strong>&quot;Waiting for NexaSocial&quot;</strong> because a valid YouTube Stream Key is needed for video packet ingestion. Click <strong>Edit Key</strong> above, paste your official <strong>YouTube Stream Key</strong>, and click <strong>Save</strong>!
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
 
               <div className="p-3.5 rounded-lg bg-emerald-950/20 border border-emerald-500/20 text-xs space-y-1">
                 <div className="font-bold text-emerald-400 flex items-center gap-1.5">
@@ -844,7 +2035,7 @@ export default function StreamControlStudioPage() {
                   Live Camera Feed Relay Active
                 </div>
                 <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  Your NexaSocial camera & screen share preview is automatically forwarded to your YouTube Channel live broadcast via FFmpeg. Click <strong className="text-emerald-400">Go Live Now</strong> above to start broadcasting!
+                  Your NexaSocial camera & screen share preview is automatically forwarded to your destinations via FFmpeg. Click <strong className="text-emerald-400">Go Live Now</strong> above to start broadcasting!
                 </p>
               </div>
             </CardContent>
@@ -864,18 +2055,20 @@ export default function StreamControlStudioPage() {
               <div className="flex justify-between py-1.5 border-b border-border/30">
                 <span className="text-muted-foreground">Current Viewers</span>
                 <span className="font-bold text-foreground">
-                  {(stream.viewerCount || 420).toLocaleString()}
+                  {stream.viewerCount !== undefined ? stream.viewerCount.toLocaleString() : "Not available"}
                 </span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-border/30">
                 <span className="text-muted-foreground">Peak Viewers</span>
                 <span className="font-bold text-foreground">
-                  {(stream.peakViewerCount || 1250).toLocaleString()}
+                  {stream.peakViewerCount !== undefined ? stream.peakViewerCount.toLocaleString() : "Not available"}
                 </span>
               </div>
               <div className="flex justify-between py-1.5">
                 <span className="text-muted-foreground">Stream Health</span>
-                <span className="font-bold text-emerald-500">Excellent</span>
+                <span className="font-bold text-foreground">
+                  {stream.status === "LIVE" ? <span className="text-emerald-500">Connected</span> : "Waiting for stream"}
+                </span>
               </div>
             </CardContent>
           </Card>
@@ -892,36 +2085,15 @@ export default function StreamControlStudioPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3 max-h-64 overflow-y-auto pr-1 text-xs">
-                {[
-                  {
-                    user: "Sam_G",
-                    platform: "YT",
-                    msg: "Super excited for this update!",
-                  },
-                  {
-                    user: "ElenaR",
-                    platform: "TW",
-                    msg: "Can we ask questions at the end?",
-                  },
-                  {
-                    user: "DevGuy",
-                    platform: "FB",
-                    msg: "Stream quality is crystal clear 👍",
-                  },
-                ].map((c, i) => (
-                  <div
-                    key={i}
-                    className="p-2 rounded-lg bg-accent/30 space-y-0.5"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-bold text-primary">{c.user}</span>
-                      <span className="text-[10px] text-muted-foreground">
-                        [{c.platform}]
-                      </span>
-                    </div>
-                    <p className="text-foreground/90">{c.msg}</p>
+                {stream.status === "LIVE" ? (
+                  <div className="text-center p-4 text-xs text-muted-foreground">
+                    No messages yet.
                   </div>
-                ))}
+                ) : (
+                  <div className="text-center p-4 text-xs text-muted-foreground">
+                    Waiting for stream to start...
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

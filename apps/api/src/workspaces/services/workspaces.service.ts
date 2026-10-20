@@ -23,6 +23,7 @@ import { ActivityLog } from '../../users/entities/activity-log.entity';
 import { UsersRepository } from '../../users/repositories/users.repository';
 import { LoggerServiceWrapper } from '../../logger/logger.service';
 import * as bcrypt from 'bcrypt';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 @Injectable()
 export class WorkspacesService {
@@ -38,6 +39,7 @@ export class WorkspacesService {
     private readonly subscriptionsService: SubscriptionsService,
     private readonly loggerService: LoggerServiceWrapper,
     private readonly dataSource: DataSource,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async createWorkspace(
@@ -258,6 +260,14 @@ export class WorkspacesService {
       }),
     );
 
+    // Emit event for automated email dispatch
+    this.eventEmitter.emit('workspace.ownership_transferred', {
+      workspaceId,
+      workspaceName: workspace.name,
+      fromUserId: currentOwnerId,
+      toUserId: dto.newOwnerId,
+    });
+
     return workspace;
   }
 
@@ -310,16 +320,24 @@ export class WorkspacesService {
     }
 
     // 3. Get subscription plan name of owner
-    const sub = await this.subscriptionsService.getCurrentSubscription(
-      workspace.ownerId,
-    );
+    let planName = 'None';
+    try {
+      const sub = await this.subscriptionsService.findActiveSubscription(
+        workspace.ownerId,
+      );
+      if (sub?.plan?.name) {
+        planName = sub.plan.name;
+      }
+    } catch {
+      planName = 'None';
+    }
 
     return {
       members: membersCount,
       connectedAccounts,
       scheduledStreams,
       liveStreams,
-      subscription: sub.plan.name,
+      subscription: planName,
     };
   }
 }

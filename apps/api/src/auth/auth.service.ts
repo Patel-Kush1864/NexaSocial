@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import {
   Injectable,
   UnauthorizedException,
@@ -5,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Repository } from 'typeorm';
 import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
@@ -16,6 +18,7 @@ import { jwtConstants } from './constants/jwt.constants';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { LoggerServiceWrapper } from '../logger/logger.service';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class AuthService {
@@ -25,9 +28,15 @@ export class AuthService {
     @InjectRepository(UserSession)
     private readonly sessionRepository: Repository<UserSession>,
     private readonly logger: LoggerServiceWrapper,
-  ) {}
+    private readonly eventEmitter: EventEmitter2,
+    private readonly mailService: MailService,
+  ) { }
 
-  async validateUser(email: string, password: string): Promise<User | null> {
+  async validateUser(
+    email: string,
+    password: string,
+    clientInfo?: { ipAddress?: string; userAgent?: string; requestId?: string },
+  ): Promise<User | null> {
     const normalizedEmail = email ? email.trim().toLowerCase() : '';
     const user = await this.usersService.findByEmail(normalizedEmail);
     if (!user) {
@@ -36,6 +45,11 @@ export class AuthService {
         'AuthService',
         'security',
       );
+      this.eventEmitter.emit('security.login.failed', {
+        email: normalizedEmail,
+        reason: 'USER_NOT_FOUND',
+        ...clientInfo,
+      });
       return null;
     }
 
@@ -45,6 +59,11 @@ export class AuthService {
         'AuthService',
         'security',
       );
+      this.eventEmitter.emit('security.login.failed', {
+        email: normalizedEmail,
+        reason: 'OAUTH_ACCOUNT',
+        ...clientInfo,
+      });
       return null;
     }
 
@@ -55,6 +74,25 @@ export class AuthService {
         'AuthService',
         'security',
       );
+      this.eventEmitter.emit('security.login.failed', {
+        email: normalizedEmail,
+        reason: 'INVALID_CREDENTIALS',
+        ...clientInfo,
+      });
+      return null;
+    }
+
+    if (user.status !== 'ACTIVE' || !user.isActive) {
+      this.logger.warn(
+        `Login failed: Account "${normalizedEmail}" is inactive or suspended (status: ${user.status})`,
+        'AuthService',
+        'security',
+      );
+      this.eventEmitter.emit('security.login.failed', {
+        email: normalizedEmail,
+        reason: 'INACTIVE_ACCOUNT',
+        ...clientInfo,
+      });
       return null;
     }
 
@@ -78,19 +116,36 @@ export class AuthService {
           verificationToken,
           isEmailVerified: true,
         },
-        'Creator',
+        'WORKSPACE_OWNER',
       );
 
       console.log(
         `[AuthService.register]: User successfully registered and saved with ID: "${user.id}", Email: "${user.email}"`,
       );
 
-      const verificationLink = `http://localhost:3000/verify-email?token=${verificationToken}`;
-      this.logger.log(
-        `Verification email sent to ${user.email}. Link: ${verificationLink}`,
-        'AuthService',
-        'security',
-      );
+      const userName =
+        `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
+
+      // 1. Send Welcome Email
+      await this.mailService.sendWelcomeEmail({
+        id: user.id,
+        name: userName,
+        email: user.email,
+      });
+
+      // 2. Send Email Verification
+      await this.mailService.sendEmailVerification({
+        id: user.id,
+        name: userName,
+        email: user.email,
+        token: verificationToken,
+      });
+
+      this.eventEmitter.emit('user.registered', {
+        userId: user.id,
+        email: user.email,
+        name: userName,
+      });
 
       return user;
     } catch (error: any) {
@@ -104,17 +159,26 @@ export class AuthService {
 
   async login(
     user: User,
-    clientInfo: { ipAddress?: string; userAgent?: string },
+    clientInfo: { ipAddress?: string; userAgent?: string; requestId?: string },
   ): Promise<TokenResponse> {
+    if (!user.isEmailVerified) {
+      throw new UnauthorizedException('Email is not verified');
+    }
+
     const sessionId = crypto.randomUUID();
 
-    const userRole =
-      user.roles && user.roles.length > 0 ? user.roles[0].name : 'CREATOR';
+    const userRole = user.role ? user.role.name : 'CREATOR';
+
+    const permissions =
+      user.role && user.role.permissions
+        ? user.role.permissions.map((p) => p.key)
+        : [];
 
     const payload: JwtPayload = {
       id: user.id,
       email: user.email,
       role: userRole,
+      permissions,
       sessionId,
     };
 
@@ -149,15 +213,37 @@ export class AuthService {
     session.id = sessionId;
     await this.sessionRepository.save(session);
 
+    this.eventEmitter.emit('security.login.success', {
+      user,
+      ipAddress: clientInfo.ipAddress,
+      userAgent: clientInfo.userAgent,
+      requestId: clientInfo.requestId,
+    });
+
     return {
       accessToken,
       refreshToken,
       expiresIn: 15 * 60,
+      user: {
+        id: user.id,
+        name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+        email: user.email,
+      },
+      role: userRole,
+      scope: ['SUPER_ADMIN', 'ADMIN'].includes(userRole)
+        ? 'PLATFORM'
+        : 'WORKSPACE',
+      permissions,
     };
   }
 
-  async logout(sessionId: string): Promise<void> {
+  async logout(sessionId: string, user?: any, auditMeta?: any): Promise<void> {
     await this.sessionRepository.delete({ id: sessionId });
+
+    if (user) {
+      this.eventEmitter.emit('security.logout', { user, sessionId, auditMeta });
+    }
+
     this.logger.log(
       `Session ${sessionId} successfully logged out.`,
       'AuthService',
@@ -179,6 +265,28 @@ export class AuthService {
     return true;
   }
 
+  async validateUserFromSession(
+    sessionId: string,
+    userId: string,
+  ): Promise<{ user: User; permissions: string[] } | null> {
+    const isSessionValid = await this.validateSession(sessionId);
+    if (!isSessionValid) {
+      return null;
+    }
+
+    const user = await this.usersService.findById(userId);
+    if (!user || user.status !== 'ACTIVE' || !user.isActive) {
+      return null;
+    }
+
+    const permissions =
+      user.role && user.role.permissions
+        ? user.role.permissions.map((p) => p.key)
+        : [];
+
+    return { user, permissions };
+  }
+
   async refresh(refreshToken: string): Promise<TokenResponse> {
     try {
       const payload = this.jwtService.verify<{ sessionId: string }>(
@@ -190,7 +298,7 @@ export class AuthService {
 
       const session = await this.sessionRepository.findOne({
         where: { id: payload.sessionId },
-        relations: { user: { roles: true } },
+        relations: { user: { role: { permissions: true } } },
       });
 
       if (!session) {
@@ -211,13 +319,18 @@ export class AuthService {
       }
 
       const user = session.user;
-      const userRole =
-        user.roles && user.roles.length > 0 ? user.roles[0].name : 'CREATOR';
+      const userRole = user.role ? user.role.name : 'CREATOR';
+
+      const permissions =
+        user.role && user.role.permissions
+          ? user.role.permissions.map((p) => p.key)
+          : [];
 
       const tokenPayload: JwtPayload = {
         id: user.id,
         email: user.email,
         role: userRole,
+        permissions,
         sessionId: session.id,
       };
 
@@ -241,6 +354,16 @@ export class AuthService {
         accessToken: newAccessToken,
         refreshToken: newRefreshToken,
         expiresIn: 15 * 60,
+        user: {
+          id: user.id,
+          name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+          email: user.email,
+        },
+        role: userRole,
+        scope: ['SUPER_ADMIN', 'ADMIN'].includes(userRole)
+          ? 'PLATFORM'
+          : 'WORKSPACE',
+        permissions,
       };
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
@@ -258,9 +381,18 @@ export class AuthService {
     user.passwordResetExpires = new Date(Date.now() + 1 * 60 * 60 * 1000);
     await this.usersService.save(user);
 
-    const resetLink = `http://localhost:3000/auth/reset-password?token=${resetToken}`;
+    const userName =
+      `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
+
+    await this.mailService.sendPasswordReset({
+      id: user.id,
+      name: userName,
+      email: user.email,
+      token: resetToken,
+    });
+
     this.logger.log(
-      `Password reset email sent to ${user.email}. Link: ${resetLink}`,
+      `Password reset email sent to ${user.email}.`,
       'AuthService',
       'security',
     );
@@ -286,6 +418,15 @@ export class AuthService {
 
     await this.sessionRepository.delete({ userId: user.id });
     await this.usersService.save(user);
+
+    const userName =
+      `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
+
+    await this.mailService.sendPasswordChangedNotification({
+      id: user.id,
+      name: userName,
+      email: user.email,
+    });
 
     this.logger.log(
       `Password reset successfully for user ${user.email}. Revoked all active sessions.`,
@@ -315,6 +456,32 @@ export class AuthService {
       'AuthService',
       'security',
     );
+  }
+
+  async getProfile(userId: string, sessionId: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+    const userRole = user.role ? user.role.name : 'CREATOR';
+    const permissions =
+      user.role && user.role.permissions
+        ? user.role.permissions.map((p) => p.key)
+        : [];
+
+    return {
+      user: {
+        id: user.id,
+        name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+        email: user.email,
+      },
+      role: userRole,
+      scope: ['SUPER_ADMIN', 'ADMIN'].includes(userRole)
+        ? 'PLATFORM'
+        : 'WORKSPACE',
+      permissions,
+      sessionId,
+    };
   }
 
   private parseDevice(userAgent: string): string {

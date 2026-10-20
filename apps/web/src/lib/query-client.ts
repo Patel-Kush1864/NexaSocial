@@ -109,5 +109,6 @@ export const queryKeys = {
       ['admin', 'refunds', limit, offset] as const,
     socialPlatforms: ['admin', 'social-platforms'] as const,
     systemHealth: ['admin', 'system-health'] as const,
+    search: (query: string) => ['admin', 'search', query] as const,
   },
 } as const;

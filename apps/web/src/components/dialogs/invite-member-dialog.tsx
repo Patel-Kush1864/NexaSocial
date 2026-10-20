@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { UserPlus, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useWorkspaceMembers } from '@/hooks/use-workspace';
 
 interface InviteMemberDialogProps {
   workspaceId: string;
@@ -31,16 +32,15 @@ export function InviteMemberDialog({ workspaceId, open, onOpenChange }: InviteMe
     },
   });
 
+  const { inviteMember, isInviting } = useWorkspaceMembers(workspaceId);
+
   const onSubmit = async (data: InviteMemberFormValues) => {
     try {
-      // Simulate invitation dispatch API
-      toast.success('Invitation sent', {
-        description: `Sent invite link to ${data.email} as ${data.role}`,
-      });
+      await inviteMember({ workspaceId, email: data.email, role: data.role });
       form.reset();
       onOpenChange(false);
     } catch {
-      toast.error('Failed to send invitation');
+      // Error handling is managed by the mutation
     }
   };
 
@@ -94,10 +94,10 @@ export function InviteMemberDialog({ workspaceId, open, onOpenChange }: InviteMe
             </Button>
             <Button
               type="submit"
-              disabled={form.formState.isSubmitting}
+              disabled={isInviting || form.formState.isSubmitting}
               className="bg-gradient-to-r from-violet-600 to-indigo-600 font-semibold"
             >
-              {form.formState.isSubmitting ? (
+              {isInviting || form.formState.isSubmitting ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Sending...

@@ -23,6 +23,10 @@ import { RecentActivityWidget } from './widgets/recent-activity.widget';
 import { ConnectedPlatformsWidget } from './widgets/connected-platforms.widget';
 import { QuickActionsWidget } from './widgets/quick-actions.widget';
 
+import { User } from '../users/entities/user.entity';
+import { Payment } from '../payments/entities/payment.entity';
+import { UserSubscription } from '../subscriptions/entities/user-subscription.entity';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -31,6 +35,9 @@ import { QuickActionsWidget } from './widgets/quick-actions.widget';
       ConnectedAccount,
       LiveStream,
       StreamPlatform,
+      User,
+      Payment,
+      UserSubscription,
     ]),
     SubscriptionsModule,
     NotificationsModule,

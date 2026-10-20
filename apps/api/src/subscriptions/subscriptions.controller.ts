@@ -1,12 +1,17 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 import {
   Controller,
   Post,
   Get,
   Body,
   UseGuards,
+  Query,
+  Param,
   BadRequestException,
 } from '@nestjs/common';
 import { SubscriptionsService } from './subscriptions.service';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { RequirePermission } from '../auth/decorators/permissions.decorator';
 import { PurchaseSubscriptionDto } from './dto/purchase-subscription.dto';
 import { ChangePlanDto } from './dto/change-plan.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -23,6 +28,51 @@ export class SubscriptionsController {
     private readonly plansService: PlansService,
     private readonly paymentsService: PaymentsService,
   ) {}
+
+  @Get()
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('platform.subscriptions.view')
+  async findAll(@Query() query: any) {
+    return this.subscriptionsService.findAll(query);
+  }
+
+  @Get('statistics')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('platform.subscriptions.view')
+  async getStatistics() {
+    return this.subscriptionsService.getStatistics();
+  }
+
+  @Get('entitlements')
+  async getEntitlements(@CurrentUser() user: CurrentUserType) {
+    if (!user) {
+      throw new BadRequestException('User context missing');
+    }
+    return this.subscriptionsService.getEntitlements(user.id);
+  }
+
+  @Get(':id')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('platform.subscriptions.view')
+  async findOne(@Param('id') id: string) {
+    if (
+      id === 'current' ||
+      id === 'history' ||
+      id === 'statistics' ||
+      id === 'entitlements'
+    ) {
+      // Ignore string matching for other endpoints
+      return;
+    }
+    return this.subscriptionsService.findOneById(id);
+  }
+
+  @Post(':id/cancel')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('platform.subscriptions.manage')
+  async adminCancel(@Param('id') id: string) {
+    return this.subscriptionsService.adminCancelSubscription(id);
+  }
 
   @Post('purchase')
   async purchase(

@@ -18,7 +18,7 @@ const FAQS = [
     category: 'Streaming Tech',
     question: 'Which social platforms are supported out of the box?',
     answer:
-      'We support YouTube Live, Twitch, Facebook Live (Pages & Groups), Instagram Live, X (Twitter Live & Spaces), LinkedIn Live, TikTok Live, as well as custom RTMP and SRT server endpoints.',
+      'We support YouTube Live, Instagram Live (via Live Producer), Facebook Live (Pages & Groups), X (Twitter Live), as well as custom RTMP and SRT server endpoints.',
   },
   {
     category: 'Streaming Tech',
@@ -30,7 +30,7 @@ const FAQS = [
     category: 'AI & Scheduling',
     question: 'How does the AI Post Generator format content for different channels?',
     answer:
-      'Our fine-tuned LLM model reads your base topic or script and automatically generates platform-specific variations: short punchy captions with hashtag stacks for Instagram & TikTok, professional executive summaries for LinkedIn, and video description copy with timestamp markers for YouTube.',
+      'Our fine-tuned LLM model reads your base topic or script and automatically generates platform-specific variations: engaging captions with hashtag stacks for Instagram, concise updates for X, and video description copy with timestamp markers for YouTube.',
   },
   {
     category: 'Enterprise & Team',

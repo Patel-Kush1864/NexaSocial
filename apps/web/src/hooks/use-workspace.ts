@@ -161,10 +161,80 @@ export function useWorkspaceMembers(workspaceId?: string) {
     },
   });
 
+  const inviteMemberMutation = useMutation({
+    mutationFn: ({
+      workspaceId,
+      email,
+      role,
+    }: {
+      workspaceId: string;
+      email: string;
+      role: string;
+    }) => workspaceService.inviteMember(workspaceId, { email, role }),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.workspaces.members(variables.workspaceId),
+      });
+      toast.success('Invitation sent', {
+        description: `Sent invite link to ${variables.email} as ${variables.role}`,
+      });
+    },
+    onError: (err: any) => {
+      const serverMsg = err?.response?.data?.message;
+      const displayMsg = Array.isArray(serverMsg) ? serverMsg.join(', ') : serverMsg;
+      toast.error(displayMsg || 'Failed to send invitation');
+    },
+  });
+
   return {
     members: membersQuery.data || [],
     isLoading: membersQuery.isLoading,
     removeMember: removeMemberMutation.mutateAsync,
     updateRole: updateRoleMutation.mutateAsync,
+    inviteMember: inviteMemberMutation.mutateAsync,
+    isInviting: inviteMemberMutation.isPending,
+  };
+}
+
+export function useWorkspaceInvitations(workspaceId?: string) {
+  const queryClient = useQueryClient();
+
+  const invitationsQuery = useQuery({
+    queryKey: [...queryKeys.workspaces.detail(workspaceId || ''), 'invitations'],
+    queryFn: () => workspaceService.getPendingInvitations(workspaceId!),
+    enabled: !!workspaceId,
+  });
+
+  const resendMutation = useMutation({
+    mutationFn: ({ workspaceId, invitationId }: { workspaceId: string; invitationId: string }) =>
+      workspaceService.resendInvitation(workspaceId, invitationId),
+    onSuccess: () => {
+      toast.success('Invitation resent successfully');
+    },
+    onError: () => {
+      toast.error('Failed to resend invitation');
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: ({ workspaceId, invitationId }: { workspaceId: string; invitationId: string }) =>
+      workspaceService.cancelInvitation(workspaceId, invitationId),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: [...queryKeys.workspaces.detail(variables.workspaceId), 'invitations'],
+      });
+      toast.success('Invitation cancelled');
+    },
+    onError: () => {
+      toast.error('Failed to cancel invitation');
+    },
+  });
+
+  return {
+    invitations: invitationsQuery.data || [],
+    isLoading: invitationsQuery.isLoading,
+    resendInvitation: resendMutation.mutateAsync,
+    cancelInvitation: cancelMutation.mutateAsync,
+    isResending: resendMutation.isPending,
   };
 }

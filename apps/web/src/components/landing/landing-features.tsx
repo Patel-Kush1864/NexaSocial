@@ -24,7 +24,7 @@ const FEATURES = [
     title: 'Multi-Platform Live Streaming',
     tag: '1080p60 Ultra-Low Latency',
     description:
-      'Broadcast 1080p RTMP video streams simultaneously to YouTube, Twitch, Facebook, X, and custom RTMP endpoints with sub-15ms latency.',
+      'Broadcast 1080p RTMP video streams simultaneously to YouTube, Facebook, Instagram, X, and custom RTMP endpoints with sub-15ms latency.',
   },
   {
     icon: BarChart3,

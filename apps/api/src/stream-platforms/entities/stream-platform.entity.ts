@@ -5,6 +5,7 @@ import { ConnectedAccount } from '../../social/entities/connected-account.entity
 
 export enum StreamPlatformStatus {
   PENDING = 'PENDING',
+  WAITING_FOR_PLATFORM_PREVIEW = 'WAITING_FOR_PLATFORM_PREVIEW',
   LIVE = 'LIVE',
   ENDED = 'ENDED',
   FAILED = 'FAILED',
@@ -26,6 +27,54 @@ export class StreamPlatform extends BaseEntity {
 
   @Column({ name: 'platform_stream_id', nullable: true })
   platformStreamId?: string;
+
+  @Column({ name: 'viewer_url', nullable: true })
+  viewerUrl?: string;
+
+  @Column({ name: 'facebook_live_video_id', nullable: true })
+  facebookLiveVideoId?: string;
+
+  @Column({ name: 'facebook_page_id', nullable: true })
+  facebookPageId?: string;
+
+  @Column({ name: 'source_connected_at', type: 'timestamp', nullable: true })
+  sourceConnectedAt?: Date;
+
+  @Column({ name: 'metadata_completed_at', type: 'timestamp', nullable: true })
+  metadataCompletedAt?: Date;
+
+  @Column({ name: 'published_at', type: 'timestamp', nullable: true })
+  publishedAt?: Date;
+
+  @Column({
+    name: 'source_status',
+    type: 'varchar',
+    length: 50,
+    default: 'DISCONNECTED',
+  })
+  sourceStatus: string;
+
+  @Column({
+    name: 'metadata_status',
+    type: 'varchar',
+    length: 50,
+    default: 'PENDING',
+  })
+  metadataStatus: string;
+
+  @Column({
+    name: 'publish_status',
+    type: 'varchar',
+    length: 50,
+    default: 'IDLE',
+  })
+  publishStatus: string;
+
+  @Column({ name: 'facebook_last_error', type: 'text', nullable: true })
+  facebookLastError?: string;
+
+  @Column({ name: 'facebook_last_error_code', nullable: true })
+  facebookLastErrorCode?: string;
 
   @Column({
     type: 'varchar',

@@ -15,7 +15,10 @@ export interface PlatformOAuthResult {
 
 export interface PlatformHandler {
   getAuthUrl(state: string): string;
-  exchangeCode(code: string): Promise<PlatformOAuthResult>;
+  exchangeCode(
+    code: string,
+    redirectUriOverride?: string,
+  ): Promise<PlatformOAuthResult>;
   refreshTokens(refreshToken: string): Promise<PlatformOAuthResult>;
   fetchProfile(accessToken: string): Promise<PlatformProfile>;
 }

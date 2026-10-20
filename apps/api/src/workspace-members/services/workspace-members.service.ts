@@ -12,6 +12,7 @@ import {
 import { Workspace } from '../../workspaces/entities/workspace.entity';
 import { ActivityLog } from '../../users/entities/activity-log.entity';
 import { LoggerServiceWrapper } from '../../logger/logger.service';
+import { MailService } from '../../mail/mail.service';
 
 @Injectable()
 export class WorkspaceMembersService {
@@ -23,6 +24,7 @@ export class WorkspaceMembersService {
     @InjectRepository(ActivityLog)
     private readonly activityLogRepository: Repository<ActivityLog>,
     private readonly loggerService: LoggerServiceWrapper,
+    private readonly mailService: MailService,
   ) {}
 
   async addMember(
@@ -79,6 +81,19 @@ export class WorkspaceMembersService {
 
     await this.memberRepository.remove(member);
 
+    const workspace = await this.workspaceRepository.findOne({ where: { id: workspaceId } });
+    if (member.user?.email) {
+      const userName = `${member.user.firstName || ''} ${member.user.lastName || ''}`.trim() || member.user.email;
+      await this.mailService.sendMail({
+        to: member.user.email,
+        userId: member.userId,
+        eventType: 'workspace.member_removed',
+        subject: `Workspace Update: Removed from "${workspace?.name || 'Workspace'}"`,
+        text: `Hi ${userName},\n\nYou have been removed from the workspace "${workspace?.name || 'Workspace'}".`,
+        category: 'WORKSPACE',
+      });
+    }
+
     this.loggerService.log(
       `Member ${member.userId} removed from Workspace ${workspaceId} by User ${performerId}`,
       'WorkspaceMembersService',
@@ -116,6 +131,24 @@ export class WorkspaceMembersService {
     const oldRole = member.role;
     member.role = role;
     await this.memberRepository.save(member);
+
+    const workspace = await this.workspaceRepository.findOne({ where: { id: workspaceId } });
+    const memberWithUser = await this.memberRepository.findOne({
+      where: { id: member.id },
+      relations: { user: true },
+    });
+
+    if (memberWithUser?.user?.email) {
+      const userName = `${memberWithUser.user.firstName || ''} ${memberWithUser.user.lastName || ''}`.trim() || memberWithUser.user.email;
+      await this.mailService.sendMail({
+        to: memberWithUser.user.email,
+        userId: memberWithUser.userId,
+        eventType: 'workspace.member_role_changed',
+        subject: `Role Updated in "${workspace?.name || 'Workspace'}": ${role}`,
+        text: `Hi ${userName},\n\nYour role in workspace "${workspace?.name || 'Workspace'}" has been updated from ${oldRole} to ${role}.`,
+        category: 'WORKSPACE',
+      });
+    }
 
     this.loggerService.log(
       `Member role of ${member.userId} updated from ${oldRole} to ${role} in Workspace ${workspaceId} by User ${performerId}`,

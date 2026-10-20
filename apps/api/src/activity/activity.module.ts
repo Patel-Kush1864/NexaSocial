@@ -3,12 +3,13 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ActivityLog } from './entities/activity-log.entity';
 import { ActivityService } from './services/activity.service';
 import { ActivityController } from './controllers/activity.controller';
+import { PlatformActivityController } from './controllers/platform-activity.controller';
 import { ActivityRepository } from './repositories/activity.repository';
 import { WorkspaceMember } from '../workspace-members/entities/workspace-member.entity';
 
 @Module({
   imports: [TypeOrmModule.forFeature([ActivityLog, WorkspaceMember])],
-  controllers: [ActivityController],
+  controllers: [ActivityController, PlatformActivityController],
   providers: [ActivityService, ActivityRepository],
   exports: [ActivityService, ActivityRepository, TypeOrmModule],
 })

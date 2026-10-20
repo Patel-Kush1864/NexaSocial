@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 // ═══════════════════════════════════════════
@@ -16,7 +17,7 @@ import type { ApiError, LoginCredentials, RegisterPayload } from '@/types';
 
 export function useAuth() {
   const router = useRouter();
-  const { user, isAuthenticated, isLoading, login, logout } = useAuthStore();
+  const { user, isAuthenticated, isLoading, login, logout, setUser } = useAuthStore();
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginCredentials) => {
@@ -36,6 +37,16 @@ export function useAuth() {
       toast.success('Welcome back!', {
         description: `Logged in as ${profile.firstName}`,
       });
+
+      if (typeof window !== 'undefined') {
+        const pendingToken = localStorage.getItem('pending_invitation_token');
+        if (pendingToken) {
+          localStorage.removeItem('pending_invitation_token');
+          router.push(`/invitations/accept?token=${pendingToken}`);
+          return;
+        }
+      }
+
       router.push('/dashboard');
     },
     onError: (error: AxiosError<ApiError>) => {
@@ -66,16 +77,55 @@ export function useAuth() {
         ...payload,
         password: '***',
       });
-      const user = await authService.register(payload);
-      console.log('[useAuth register] Registration succeeded for user:', user);
-      return user;
+      const registeredUser = await authService.register(payload);
+
+      // Auto-login registered user using existing login workflow
+      const normalizedCredentials = {
+        email: payload.email.trim().toLowerCase(),
+        password: payload.password,
+      };
+      const tokens = await authService.login(normalizedCredentials);
+      setAccessToken(tokens.accessToken);
+      localStorage.setItem('nexasocial_refresh_token', tokens.refreshToken);
+
+      try {
+        const profile = await userService.getProfile();
+        return profile;
+      } catch (profileErr) {
+        console.warn(
+          'Could not fetch profile, falling back to registration details:',
+          profileErr,
+        );
+        return {
+          id: registeredUser.id,
+          firstName: registeredUser.firstName || payload.firstName,
+          lastName: registeredUser.lastName || payload.lastName,
+          email: registeredUser.email || payload.email,
+          role: 'CREATOR',
+          permissions: [],
+          isActive: true,
+          workspaces: 0,
+          connectedAccounts: 0,
+          subscription: 'None',
+        } as any;
+      }
     },
-    onSuccess: (user) => {
-      console.log('[useAuth register onSuccess]: Successfully registered user email:', user?.email);
-      toast.success('Account created!', {
-        description: 'Account created successfully! Please sign in.',
+    onSuccess: (profile) => {
+      login(profile);
+      toast.success('Welcome to NexaSocial!', {
+        description: `Account created for ${profile.firstName}!`,
       });
-      router.push('/login');
+
+      if (typeof window !== 'undefined') {
+        const pendingToken = localStorage.getItem('pending_invitation_token');
+        if (pendingToken) {
+          localStorage.removeItem('pending_invitation_token');
+          router.push(`/invitations/accept?token=${pendingToken}`);
+          return;
+        }
+      }
+
+      router.push('/dashboard');
     },
     onError: (error: AxiosError<ApiError>) => {
       console.error('[useAuth register onError] Axios error object:', error);
@@ -154,6 +204,7 @@ export function useAuth() {
 
   return {
     user,
+    setUser,
     isAuthenticated,
     isLoading,
     login: loginMutation.mutateAsync,

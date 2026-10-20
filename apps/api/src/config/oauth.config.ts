@@ -4,6 +4,8 @@ export const FACEBOOK_SCOPES = [
   'pages_show_list',
   'pages_read_engagement',
   'pages_manage_metadata',
+  'pages_manage_posts',
+  'publish_video',
 ];
 
 export default registerAs('oauth', () => ({
@@ -26,20 +28,16 @@ export default registerAs('oauth', () => ({
     graphVersion: process.env.FACEBOOK_GRAPH_VERSION || 'v23.0',
     scopes: FACEBOOK_SCOPES,
   },
-  linkedin: {
-    clientId: process.env.LINKEDIN_CLIENT_ID,
-    clientSecret: process.env.LINKEDIN_CLIENT_SECRET,
+  instagram: {
+    clientId: process.env.INSTAGRAM_CLIENT_ID,
+    clientSecret: process.env.INSTAGRAM_CLIENT_SECRET,
+    redirectUri:
+      process.env.INSTAGRAM_REDIRECT_URI ||
+      'http://localhost:5000/api/social/callback/instagram',
+    scopes: ['instagram_business_basic', 'instagram_business_manage_messages'],
   },
   x: {
     clientId: process.env.X_CLIENT_ID,
     clientSecret: process.env.X_CLIENT_SECRET,
-  },
-  twitch: {
-    clientId: process.env.TWITCH_CLIENT_ID,
-    clientSecret: process.env.TWITCH_CLIENT_SECRET,
-  },
-  tiktok: {
-    clientId: process.env.TIKTOK_CLIENT_ID,
-    clientSecret: process.env.TIKTOK_CLIENT_SECRET,
   },
 }));

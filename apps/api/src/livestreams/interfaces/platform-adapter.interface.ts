@@ -23,4 +23,9 @@ export interface PlatformAdapter {
     streamId: string,
     maxWaitMs?: number,
   ): Promise<boolean>;
+
+  getViewerUrl?(
+    accessToken: string,
+    platformStreamId: string,
+  ): Promise<string | null>;
 }

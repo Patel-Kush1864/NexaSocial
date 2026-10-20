@@ -246,7 +246,10 @@ export class FacebookProvider implements SocialProvider {
     return Promise.resolve({ accessToken: refreshToken, expiresIn: 5184000 });
   }
 
-  private async syncConnectedAccount(saved: SocialAccount, workspaceId?: string) {
+  private async syncConnectedAccount(
+    saved: SocialAccount,
+    workspaceId?: string,
+  ) {
     try {
       let connAcc = await this.accountRepository.findOne({
         where: { id: saved.id },

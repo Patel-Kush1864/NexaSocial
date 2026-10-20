@@ -3,6 +3,9 @@ import { UsersService } from '../../../src/users/users.service';
 import { UsersRepository } from '../../../src/users/repositories/users.repository';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Role } from '../../../src/users/entities/role.entity';
+import { ActivityLog } from '../../../src/users/entities/activity-log.entity';
+import { DataSource } from 'typeorm';
+import { AuditService } from '../../../src/audit/services/audit.service';
 import { createMockUser } from '../../fixtures/user.fixture';
 import { createMockRepository } from '../../mocks/repository.mock';
 import { ConflictException, NotFoundException } from '@nestjs/common';
@@ -26,6 +29,18 @@ describe('UsersService (Unit)', () => {
         UsersService,
         { provide: UsersRepository, useValue: usersRepository },
         { provide: getRepositoryToken(Role), useValue: roleRepository },
+        {
+          provide: getRepositoryToken(ActivityLog),
+          useValue: createMockRepository(),
+        },
+        {
+          provide: DataSource,
+          useValue: { query: jest.fn().mockResolvedValue([]) },
+        },
+        {
+          provide: AuditService,
+          useValue: { logSecurityEvent: jest.fn(), logAction: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -35,7 +50,9 @@ describe('UsersService (Unit)', () => {
   describe('findByEmail', () => {
     it('should return user when found', async () => {
       const mockUser = createMockUser();
-      usersRepository.findByEmail!.mockResolvedValue(mockUser as any);
+      (usersRepository.findByEmail as jest.Mock).mockResolvedValue(
+        mockUser as any,
+      );
 
       const result = await usersService.findByEmail(mockUser.email);
       expect(result).toEqual(mockUser);
@@ -45,7 +62,9 @@ describe('UsersService (Unit)', () => {
   describe('create', () => {
     it('should throw ConflictException if user email exists', async () => {
       const existingUser = createMockUser();
-      usersRepository.findByEmail!.mockResolvedValue(existingUser as any);
+      (usersRepository.findByEmail as jest.Mock).mockResolvedValue(
+        existingUser as any,
+      );
 
       await expect(
         usersService.create({ email: existingUser.email, password: 'Pass' }),
@@ -57,17 +76,17 @@ describe('UsersService (Unit)', () => {
         email: 'newuser@example.com',
         password: 'Password123!',
       };
-      usersRepository.findByEmail!.mockResolvedValue(null);
+      (usersRepository.findByEmail as jest.Mock).mockResolvedValue(null);
       roleRepository.findOne.mockResolvedValue({
         id: 'role-1',
         name: 'CREATOR',
       });
 
       const mockSaved = createMockUser({ email: newUserDto.email });
-      (usersRepository.rawRepository.create as jest.Mock).mockReturnValue(
+      (usersRepository.rawRepository!.create as jest.Mock).mockReturnValue(
         mockSaved,
       );
-      (usersRepository.rawRepository.save as jest.Mock).mockResolvedValue(
+      (usersRepository.rawRepository!.save as jest.Mock).mockResolvedValue(
         mockSaved,
       );
 
@@ -78,7 +97,7 @@ describe('UsersService (Unit)', () => {
 
   describe('update', () => {
     it('should throw NotFoundException if user to update is missing', async () => {
-      usersRepository.findById!.mockResolvedValue(null);
+      (usersRepository.findById as jest.Mock).mockResolvedValue(null);
       await expect(
         usersService.update('non-existent', { firstName: 'Test' }),
       ).rejects.toThrow(NotFoundException);

@@ -7,6 +7,7 @@ export interface StreamForwardOptions {
   sourceUrl: string;
   destinationUrl: string;
   streamKey: string;
+  platform?: string;
 }
 
 @Injectable()
@@ -15,7 +16,7 @@ export class FFmpegService implements OnModuleDestroy {
   private headerChunks = new Map<string, Buffer>();
   private chunkCounters = new Map<string, number>();
 
-  constructor(private readonly logger: LoggerServiceWrapper) {}
+  constructor(private readonly logger: LoggerServiceWrapper) { }
 
   /**
    * Check if a buffer starts with WebM/EBML header (0x1A 0x45 0xDF 0xA3)
@@ -52,7 +53,7 @@ export class FFmpegService implements OnModuleDestroy {
       'application',
     );
     this.logger.log(
-      `[LIVE] YouTube destination loaded: ${destinationUrl}`,
+      `[LIVE] ${options.platform || 'Platform'} destination loaded: ${destinationUrl}`,
       'FFmpegService',
       'application',
     );
@@ -66,9 +67,20 @@ export class FFmpegService implements OnModuleDestroy {
       streamKey.length > 8
         ? `${streamKey.substring(0, 4)}••••••••`
         : '••••••••';
-    const fullDestination = destinationUrl.endsWith('/')
-      ? `${destinationUrl}${streamKey}`
-      : `${destinationUrl}/${streamKey}`;
+    const base = destinationUrl.replace(/\/+$/, '');
+    const key = streamKey.replace(/^\/+/, '');
+    const fullDestination = `${base}/${key}`;
+
+    if (!this.validateDestinationUrl(destinationUrl, options.platform)) {
+      this.logger.error(
+        `[LIVE] Rejected invalid or unauthorized stream destination: ${destinationUrl}`,
+        undefined,
+        'FFmpegService',
+      );
+      throw new Error(
+        `Invalid or prohibited streaming destination URL: ${destinationUrl}`,
+      );
+    }
 
     let args: string[];
     if (
@@ -80,7 +92,7 @@ export class FFmpegService implements OnModuleDestroy {
         '-loglevel',
         'warning',
         '-f',
-        'matroska,webm',
+        'webm',
         '-i',
         'pipe:0',
         '-c:v',
@@ -101,6 +113,9 @@ export class FFmpegService implements OnModuleDestroy {
         '3000k',
         '-bufsize',
         '6000k',
+        ...(options.platform === 'INSTAGRAM'
+          ? ['-vf', 'scale=720:-1,pad=720:1280:0:(1280-ih)/2:black']
+          : []),
         '-c:a',
         'aac',
         '-ar',
@@ -140,8 +155,18 @@ export class FFmpegService implements OnModuleDestroy {
         // Fallback to system ffmpeg
       }
 
+      console.log(
+        `\n\x1b[1;34m╔════════════════════════════════════════════════════════════════════════════════╗\n` +
+        `║ [FFMPEG RELAY] Starting Stream Forwarder (${options.platform || 'Platform'})    \n` +
+        `╚════════════════════════════════════════════════════════════════════════════════╝\x1b[0m\n` +
+        `  • Stream ID:      ${streamId}\n` +
+        `  • Binary:         ${ffmpegBinary}\n` +
+        `  • Input:          pipe:0 (browser WebM binary chunks)\n` +
+        `  • Destination:    ${fullDestination.replace(key, maskedKey)}\n`,
+      );
+
       this.logger.log(
-        `[LIVE] Starting YouTube relay: Spawning FFmpeg (${ffmpegBinary}) to relay pipe:0 to ${destinationUrl}/${maskedKey}`,
+        `[LIVE] Starting ${options.platform || 'Platform'} relay: Spawning FFmpeg (${ffmpegBinary}) to relay pipe:0 to ${fullDestination.replace(key, maskedKey)}`,
         'FFmpegService',
         'application',
       );
@@ -159,6 +184,10 @@ export class FFmpegService implements OnModuleDestroy {
         });
       }
 
+      console.log(
+        `  \x1b[32m✔ FFmpeg process started with PID ${ffmpegProc.pid || 'unknown'}\x1b[0m\n`,
+      );
+
       this.logger.log(
         `[LIVE] FFmpeg process started with PID ${ffmpegProc.pid || 'unknown'}. FFmpeg input connected.`,
         'FFmpegService',
@@ -169,6 +198,9 @@ export class FFmpegService implements OnModuleDestroy {
       const cachedHeader = this.headerChunks.get(streamId);
       if (cachedHeader && ffmpegProc.stdin && !ffmpegProc.stdin.destroyed) {
         ffmpegProc.stdin.write(cachedHeader);
+        console.log(
+          `  ✔ Piped cached WebM EBML header (${cachedHeader.length} bytes) to FFmpeg stdin`,
+        );
         this.logger.log(
           `[LIVE] Piped cached WebM EBML header (${cachedHeader.length} bytes) to FFmpeg stdin for stream [${streamId}]`,
           'FFmpegService',
@@ -177,7 +209,7 @@ export class FFmpegService implements OnModuleDestroy {
       }
 
       this.logger.log(
-        `[LIVE] Connecting to YouTube...`,
+        `[LIVE] Connecting to ${options.platform || 'Platform'}...`,
         'FFmpegService',
         'application',
       );
@@ -194,12 +226,22 @@ export class FFmpegService implements OnModuleDestroy {
         const msg = String(data).trim();
         if (msg) {
           if (/error|failed/i.test(msg)) {
+            console.error(
+              `\x1b[31m[FFMPEG RELAY ERROR] [${streamId}]: ${msg}\x1b[0m`,
+            );
             this.logger.warn(
               `[LIVE] FFmpeg error [${streamId}]: ${msg}`,
               'FFmpegService',
               'application',
             );
+          } else if (msg.includes('frame=')) {
+            // Periodic encoder status
+            this.logger.debug(
+              `[LIVE] FFmpeg status [${streamId}]: ${msg}`,
+              'FFmpegService',
+            );
           } else {
+            console.log(`\x1b[90m[FFMPEG RELAY] [${streamId}]: ${msg}\x1b[0m`);
             this.logger.log(
               `[LIVE] FFmpeg status [${streamId}]: ${msg}`,
               'FFmpegService',
@@ -229,7 +271,7 @@ export class FFmpegService implements OnModuleDestroy {
 
       this.activeProcesses.set(processKey, ffmpegProc);
       this.logger.log(
-        `[LIVE] YouTube relay running for stream [${streamId}]`,
+        `[LIVE] ${options.platform || 'Platform'} relay running for stream [${streamId}]`,
         'FFmpegService',
         'application',
       );
@@ -312,9 +354,60 @@ export class FFmpegService implements OnModuleDestroy {
   /**
    * Check if a stream relay process is running.
    */
-  isForwarding(streamId: string, streamKey: string): boolean {
-    const processKey = `${streamId}:${streamKey}`;
-    return this.activeProcesses.has(processKey);
+  isForwarding(streamId: string, streamKey?: string): boolean {
+    if (streamKey) {
+      const processKey = `${streamId}:${streamKey}`;
+      return this.activeProcesses.has(processKey);
+    }
+    for (const key of this.activeProcesses.keys()) {
+      if (key.startsWith(`${streamId}:`)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Validates stream destination URL to prevent SSRF and internal network scanning.
+   */
+  private validateDestinationUrl(url: string, platform?: string): boolean {
+    if (!url || typeof url !== 'string') return false;
+    const trimmed = url.trim();
+    if (!trimmed.startsWith('rtmp://') && !trimmed.startsWith('rtmps://')) {
+      return false;
+    }
+
+    try {
+      const parsed = new URL(trimmed.replace(/^rtmps?:\/\//, 'http://'));
+      const host = parsed.hostname.toLowerCase();
+
+      // Disallow local and loopback addresses
+      if (
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        host === '0.0.0.0' ||
+        host.endsWith('.local') ||
+        host.startsWith('10.') ||
+        host.startsWith('192.168.') ||
+        host.startsWith('169.254.') ||
+        /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host)
+      ) {
+        return false;
+      }
+
+      if (platform?.toUpperCase() === 'INSTAGRAM') {
+        return (
+          host === 'live-upload.instagram.com' ||
+          host.endsWith('.instagram.com') ||
+          host.endsWith('.facebook.com') ||
+          host === 'rtmp-api.facebook.com'
+        );
+      }
+
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   onModuleDestroy() {

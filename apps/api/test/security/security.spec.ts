@@ -48,8 +48,10 @@ describe('Security & Vulnerability Test Suite (Step 8)', () => {
       const callbackState = 'crypto-random-state-xyz123';
       const attackerState = 'forged-state-attack';
 
-      expect(callbackState === sessionState).toBe(true);
-      expect(attackerState === sessionState).toBe(false);
+      expect((callbackState as string) === (sessionState as string)).toBe(true);
+      expect((attackerState as string) === (sessionState as string)).toBe(
+        false,
+      );
     });
 
     it('should track login attempt threshold for brute-force protection', () => {

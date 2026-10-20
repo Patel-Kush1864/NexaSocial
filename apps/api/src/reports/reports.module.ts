@@ -5,8 +5,10 @@ import { Workspace } from '../workspaces/entities/workspace.entity';
 import { LiveStream } from '../livestreams/entities/livestream.entity';
 import { ConnectedAccount } from '../social/entities/connected-account.entity';
 import { UserSubscription } from '../subscriptions/entities/user-subscription.entity';
+import { Payment } from '../payments/entities/payment.entity';
 import { ReportsService } from './services/reports.service';
 import { ReportsController } from './controllers/reports.controller';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
@@ -16,7 +18,9 @@ import { ReportsController } from './controllers/reports.controller';
       LiveStream,
       ConnectedAccount,
       UserSubscription,
+      Payment,
     ]),
+    AuditModule,
   ],
   controllers: [ReportsController],
   providers: [ReportsService],

@@ -84,8 +84,8 @@ export class ProfileController {
     if (!file) {
       throw new BadRequestException('Please select an image file to upload');
     }
-    const mockCloudUrl = `https://cloudinary.com/nexasocial/avatars/${user.id}_${Date.now()}_${file.originalname}`;
-    return this.profileService.uploadAvatar(user.id, mockCloudUrl);
+    const base64Image = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+    return this.profileService.uploadAvatar(user.id, base64Image);
   }
 
   @Delete('avatar')

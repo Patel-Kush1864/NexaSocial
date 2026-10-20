@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Get,
   Body,
   Param,
   UseGuards,
@@ -18,6 +19,7 @@ import { CurrentUser as CurrentUserType } from '../../auth/interfaces/current-us
 import { WorkspaceRoleGuard } from '../../workspaces/guards/workspace-role.guard';
 import { RequireWorkspaceRole } from '../../workspaces/decorators/workspace-role.decorator';
 import { WorkspaceRole } from '../../workspace-members/entities/workspace-member.entity';
+import { SubscriptionGuard } from '../../subscriptions/guards/subscription.guard';
 
 @Controller('workspaces')
 @UseGuards(JwtAuthGuard)
@@ -25,7 +27,7 @@ export class InvitationsController {
   constructor(private readonly invitationsService: InvitationsService) {}
 
   @Post(':id/invite')
-  @UseGuards(WorkspaceRoleGuard)
+  @UseGuards(WorkspaceRoleGuard, SubscriptionGuard)
   @RequireWorkspaceRole(WorkspaceRole.OWNER, WorkspaceRole.MANAGER)
   async invite(
     @CurrentUser() user: CurrentUserType,
@@ -58,5 +60,41 @@ export class InvitationsController {
       throw new BadRequestException('User context missing');
     }
     return this.invitationsService.reject(dto, user.id);
+  }
+
+  @Get(':id/invitations')
+  @UseGuards(WorkspaceRoleGuard)
+  @RequireWorkspaceRole(WorkspaceRole.OWNER, WorkspaceRole.MANAGER)
+  async getPendingInvitations(@Param('id') id: string) {
+    return this.invitationsService.getPendingInvitations(id);
+  }
+
+  @Post(':id/invitations/:invitationId/resend')
+  @UseGuards(WorkspaceRoleGuard)
+  @RequireWorkspaceRole(WorkspaceRole.OWNER, WorkspaceRole.MANAGER)
+  async resendInvitation(
+    @CurrentUser() user: CurrentUserType,
+    @Param('id') id: string,
+    @Param('invitationId') invitationId: string,
+  ) {
+    if (!user) {
+      throw new BadRequestException('User context missing');
+    }
+    return this.invitationsService.resendInvitation(id, invitationId, user.id);
+  }
+
+  @Post(':id/invitations/:invitationId/cancel')
+  @UseGuards(WorkspaceRoleGuard)
+  @RequireWorkspaceRole(WorkspaceRole.OWNER, WorkspaceRole.MANAGER)
+  async cancelInvitation(
+    @CurrentUser() user: CurrentUserType,
+    @Param('id') id: string,
+    @Param('invitationId') invitationId: string,
+  ) {
+    if (!user) {
+      throw new BadRequestException('User context missing');
+    }
+    await this.invitationsService.cancelInvitation(id, invitationId, user.id);
+    return { success: true };
   }
 }

@@ -5,6 +5,8 @@ import { cn } from '@/lib/utils';
 
 interface PopoverProps {
   children: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: React.Dispatch<React.SetStateAction<boolean>> | ((open: boolean) => void);
 }
 
 interface PopoverTriggerProps {
@@ -16,6 +18,7 @@ interface PopoverContentProps {
   align?: 'start' | 'center' | 'end';
   className?: string;
   children: React.ReactNode;
+  onOpenAutoFocus?: (e: any) => void;
 }
 
 const PopoverContext = React.createContext<{
@@ -26,10 +29,21 @@ const PopoverContext = React.createContext<{
   setOpen: () => {},
 });
 
-export function Popover({ children }: PopoverProps) {
-  const [open, setOpen] = React.useState(false);
+export function Popover({ children, open: controlledOpen, onOpenChange }: PopoverProps) {
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
+  
+  const setOpen = React.useCallback(
+    (value: React.SetStateAction<boolean>) => {
+      const newValue = typeof value === 'function' ? value(open) : value;
+      if (controlledOpen === undefined) setInternalOpen(newValue);
+      onOpenChange?.(newValue);
+    },
+    [controlledOpen, open, onOpenChange]
+  );
+
   return (
-    <PopoverContext.Provider value={{ open, setOpen }}>
+    <PopoverContext.Provider value={{ open, setOpen: setOpen as any }}>
       <div className="relative inline-block text-left">{children}</div>
     </PopoverContext.Provider>
   );

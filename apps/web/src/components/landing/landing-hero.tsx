@@ -71,7 +71,7 @@ export function LandingHero() {
         transition={{ duration: 0.8, delay: 0.4 }}
         className="text-base sm:text-xl text-muted-foreground max-w-3xl mx-auto leading-relaxed px-2"
       >
-        Unified control across <strong className="text-foreground font-semibold">YouTube, Instagram, TikTok, X, LinkedIn, Facebook & Twitch</strong>.
+        Unified control across <strong className="text-foreground font-semibold">YouTube, Instagram, Facebook & X</strong>.
         Stream 1080p60 video simultaneously and schedule multi-channel AI content from a single command deck.
       </motion.p>
 

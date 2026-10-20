@@ -3,6 +3,7 @@ packages:
   - packages/*
 allowBuilds:
   '@scarf/scarf': true
+  '@swc/core': set this to true or false
   bcrypt: true
   cpu-features: true
   ffmpeg-static: true
