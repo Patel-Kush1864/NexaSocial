@@ -10,12 +10,14 @@ export const FACEBOOK_SCOPES = [
 
 export default registerAs('oauth', () => ({
   google: {
-    clientId: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    clientId: process.env.GOOGLE_CLIENT_ID || process.env.YOUTUBE_CLIENT_ID,
+    clientSecret:
+      process.env.GOOGLE_CLIENT_SECRET || process.env.YOUTUBE_CLIENT_SECRET,
   },
   youtube: {
-    clientId: process.env.YOUTUBE_CLIENT_ID,
-    clientSecret: process.env.YOUTUBE_CLIENT_SECRET,
+    clientId: process.env.YOUTUBE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
+    clientSecret:
+      process.env.YOUTUBE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET,
   },
   facebook: {
     appId: process.env.FACEBOOK_APP_ID || process.env.FACEBOOK_CLIENT_ID,
@@ -33,8 +35,10 @@ export default registerAs('oauth', () => ({
     clientSecret: process.env.INSTAGRAM_CLIENT_SECRET,
     redirectUri:
       process.env.INSTAGRAM_REDIRECT_URI ||
+      process.env.INSTAGRAM_CALLBACK_URL ||
+      process.env.META_INSTAGRAM_REDIRECT_URI ||
       'http://localhost:5000/api/social/callback/instagram',
-    scopes: ['instagram_business_basic', 'instagram_business_manage_messages'],
+    scopes: ['instagram_business_basic'],
   },
   x: {
     clientId: process.env.X_CLIENT_ID,

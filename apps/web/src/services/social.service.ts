@@ -72,7 +72,7 @@ export const socialService = {
             );
             return { data: [] };
           }),
-        this.getFacebookAccounts()
+        this.getFacebookAccounts(workspaceId)
           .then((res) => {
             console.log('[SocialService] getFacebookAccounts success count:', res?.length);
             return res;
@@ -86,25 +86,29 @@ export const socialService = {
           }),
       ]);
 
-      const facebookAccounts: SocialAccount[] = (facebookRes || []).map(
-        (fbAcc: FacebookAccountResponse) => ({
+      const facebookAccounts: SocialAccount[] = (facebookRes || [])
+        .filter(
+          (fbAcc: FacebookAccountResponse) =>
+            fbAcc.status === 'CONNECTED' || (fbAcc as any).connected === true,
+        )
+        .map((fbAcc: FacebookAccountResponse) => ({
           id: fbAcc.id,
           platform: 'FACEBOOK',
           platformAccountId: fbAcc.pageId || fbAcc.providerUserId,
           accountName: fbAcc.pageName || fbAcc.providerUserName,
           accountAvatar:
             'https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=150',
-          isActive: fbAcc.status === 'CONNECTED',
+          isActive: true,
           workspaceId: workspaceId || '',
           connectedBy: fbAcc.userId,
           createdAt: fbAcc.createdAt,
           updatedAt: fbAcc.updatedAt,
-        }),
-      );
+        }));
 
       /* eslint-disable @typescript-eslint/no-explicit-any */
-      const generalAccounts: SocialAccount[] = (generalRes.data || []).map(
-        (acc: any) => ({
+      const generalAccounts: SocialAccount[] = (generalRes.data || [])
+        .filter((acc: any) => acc.status !== 'DISCONNECTED')
+        .map((acc: any) => ({
           id: acc.id,
           platform: (
             acc.platformName ||
@@ -135,14 +139,20 @@ export const socialService = {
           connectedBy: acc.userId || '',
           createdAt: acc.createdAt || acc.created_at,
           updatedAt: acc.updatedAt || acc.updated_at,
-        }),
-      );
+        }));
       /* eslint-enable @typescript-eslint/no-explicit-any */
 
       const existingIds = new Set(facebookAccounts.map((a) => a.id));
+      const existingPlatformIds = new Set(
+        facebookAccounts.map((a) => `${a.platform}_${a.platformAccountId}`),
+      );
       const combined = [
         ...facebookAccounts,
-        ...generalAccounts.filter((a) => !existingIds.has(a.id)),
+        ...generalAccounts.filter(
+          (a) =>
+            !existingIds.has(a.id) &&
+            !existingPlatformIds.has(`${a.platform}_${a.platformAccountId}`),
+        ),
       ];
 
       console.log(
@@ -156,15 +166,19 @@ export const socialService = {
     }
   },
 
-  async getFacebookAccounts(): Promise<FacebookAccountResponse[]> {
+  async getFacebookAccounts(
+    workspaceId?: string,
+  ): Promise<FacebookAccountResponse[]> {
     try {
       const { data } = await apiClient.get<FacebookAccountResponse[]>(
         '/social-accounts/facebook',
+        { params: { workspaceId } },
       );
       return data;
     } catch {
       const { data } = await apiClient.get<FacebookAccountResponse[]>(
         '/social/facebook/accounts',
+        { params: { workspaceId } },
       );
       return data;
     }
@@ -210,9 +224,16 @@ export const socialService = {
         `/social/accounts/${accountId}`,
         { params: { workspaceId } },
       );
+      // Clean up legacy facebook endpoints asynchronously if applicable
+      apiClient.delete(`/social-accounts/facebook/${accountId}`).catch(() => {});
+      apiClient.delete(`/social/facebook/${accountId}`).catch(() => {});
       return data;
     } catch {
-      await apiClient.delete(`/social/facebook/${accountId}`);
+      try {
+        await apiClient.delete(`/social-accounts/facebook/${accountId}`);
+      } catch {
+        await apiClient.delete(`/social/facebook/${accountId}`);
+      }
       return { success: true };
     }
   },

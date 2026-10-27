@@ -6,7 +6,7 @@ import { GoogleUserProfile } from './google.strategy';
 
 @Controller('auth/google')
 export class GoogleController {
-  constructor(private readonly googleService: GoogleService) {}
+  constructor(private readonly googleService: GoogleService) { }
 
   @Get()
   @UseGuards(GoogleAuthGuard)
@@ -30,16 +30,23 @@ export class GoogleController {
       '[GoogleController] Profile received:',
       profile
         ? {
-            id: profile.googleId,
-            email: profile.email,
-            name: `${profile.firstName} ${profile.lastName}`.trim(),
-          }
+          id: profile.googleId,
+          email: profile.email,
+          name: `${profile.firstName} ${profile.lastName}`.trim(),
+        }
         : null,
     );
-    console.log('[GoogleController] queryWorkspaceId:', queryWorkspaceId, 'stateStr:', stateStr);
+    console.log(
+      '[GoogleController] queryWorkspaceId:',
+      queryWorkspaceId,
+      'stateStr:',
+      stateStr,
+    );
 
     if (!profile) {
-      console.error('[GoogleController] Google authentication failed: No profile found in request');
+      console.error(
+        '[GoogleController] Google authentication failed: No profile found in request',
+      );
       return res.redirect(
         `${frontendUrl}/social?error=${encodeURIComponent('Google authentication failed')}`,
       );
@@ -55,21 +62,34 @@ export class GoogleController {
           workspaceId = decoded.workspaceId;
         }
       } catch (err) {
-        console.warn('[GoogleController] Failed to parse state parameter:', err);
+        console.warn(
+          '[GoogleController] Failed to parse state parameter:',
+          err,
+        );
       }
     }
 
-    console.log('[GoogleController] Resolved workspaceId for channel:', workspaceId);
+    console.log(
+      '[GoogleController] Resolved workspaceId for channel:',
+      workspaceId,
+    );
 
     try {
-      const account = await this.googleService.handleGoogleCallback(profile, workspaceId);
+      const account = await this.googleService.handleGoogleCallback(
+        profile,
+        workspaceId,
+      );
       console.log(
         `[GoogleController] Successfully saved YouTube account '${account.name}' (ID: ${account.id}) for workspace: ${account.workspaceId}`,
       );
       return res.redirect(`${frontendUrl}/social?connected=youtube`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error('[GoogleController] Error in handleGoogleCallback:', msg, err);
+      console.error(
+        '[GoogleController] Error in handleGoogleCallback:',
+        msg,
+        err,
+      );
       return res.redirect(
         `${frontendUrl}/social?error=${encodeURIComponent(msg || 'Google OAuth callback failed')}`,
       );

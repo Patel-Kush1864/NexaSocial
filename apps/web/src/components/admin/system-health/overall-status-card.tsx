@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime } from '@/lib/utils';
 import { SystemHealthResult } from '@/types';
 import { CheckCircle2, AlertTriangle, XCircle, HelpCircle } from 'lucide-react';
 
@@ -40,7 +40,7 @@ export function OverallStatusCard({ data }: { data: SystemHealthResult }) {
               {healthyCount} / {totalCount} Services Healthy
             </div>
             <p className="text-xs text-muted-foreground">
-              Last checked {formatDistanceToNow(new Date(data.checkedAt), { addSuffix: true })}
+              Last checked {formatRelativeTime(data.checkedAt, { addSuffix: true })}
             </p>
           </div>
         </div>

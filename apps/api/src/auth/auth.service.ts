@@ -19,6 +19,8 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { LoggerServiceWrapper } from '../logger/logger.service';
 import { MailService } from '../mail/mail.service';
+import { WorkspacesService } from '../workspaces/services/workspaces.service';
+import { InvitationsService } from '../invitations/services/invitations.service';
 
 @Injectable()
 export class AuthService {
@@ -30,7 +32,9 @@ export class AuthService {
     private readonly logger: LoggerServiceWrapper,
     private readonly eventEmitter: EventEmitter2,
     private readonly mailService: MailService,
-  ) { }
+    private readonly workspacesService: WorkspacesService,
+    private readonly invitationsService: InvitationsService,
+  ) {}
 
   async validateUser(
     email: string,
@@ -99,16 +103,91 @@ export class AuthService {
     return user;
   }
 
-  async register(registerDto: RegisterDto): Promise<User> {
+  async register(
+    registerDto: RegisterDto,
+  ): Promise<User & { isInvited?: boolean; workspaceId?: string | null }> {
     try {
       console.log(
         `[AuthService.register]: Starting registration process for email: "${registerDto.email}"`,
       );
       const verificationToken = crypto.randomBytes(32).toString('hex');
+      const normalizedEmail = registerDto.email.trim().toLowerCase();
 
+      // Case A: Registration through team invitation
+      if (registerDto.invitationToken) {
+        console.log(
+          `[AuthService.register]: Validating invitation token for: "${normalizedEmail}"`,
+        );
+        const inviteInfo = await this.invitationsService.validateToken(
+          registerDto.invitationToken,
+        );
+
+        if (normalizedEmail !== inviteInfo.email.trim().toLowerCase()) {
+          throw new BadRequestException(
+            'Please use the email address to which this invitation was sent.',
+          );
+        }
+
+        // Create user with invited role (MANAGER, CREATOR, or VIEWER) — never WORKSPACE_OWNER or ADMIN
+        const invitedRole = inviteInfo.role || 'CREATOR';
+        const user = await this.usersService.create(
+          {
+            email: normalizedEmail,
+            password: registerDto.password,
+            firstName: registerDto.firstName,
+            lastName: registerDto.lastName,
+            phoneNumber: registerDto.phoneNumber,
+            verificationToken,
+            isEmailVerified: true,
+          },
+          invitedRole,
+        );
+
+        // Do not create a separate workspace for invited members.
+        // Immediately accept membership into the inviter's workspace
+        await this.invitationsService.accept(
+          { token: registerDto.invitationToken },
+          user.id,
+        );
+
+        console.log(
+          `[AuthService.register]: Invited user registered and joined Workspace ${inviteInfo.workspaceId} with role ${invitedRole}`,
+        );
+
+        const userName =
+          `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
+
+        await this.mailService.sendWelcomeEmail({
+          id: user.id,
+          name: userName,
+          email: user.email,
+        });
+
+        await this.mailService.sendEmailVerification({
+          id: user.id,
+          name: userName,
+          email: user.email,
+          token: verificationToken,
+        });
+
+        this.eventEmitter.emit('user.registered', {
+          userId: user.id,
+          email: user.email,
+          name: userName,
+          isInvited: true,
+          workspaceId: inviteInfo.workspaceId,
+        });
+
+        return Object.assign(user, {
+          isInvited: true,
+          workspaceId: inviteInfo.workspaceId,
+        });
+      }
+
+      // Case B: Public Sign Up (No Invitation) — Workspace Owner workflow
       const user = await this.usersService.create(
         {
-          email: registerDto.email,
+          email: normalizedEmail,
           password: registerDto.password,
           firstName: registerDto.firstName,
           lastName: registerDto.lastName,
@@ -120,7 +199,7 @@ export class AuthService {
       );
 
       console.log(
-        `[AuthService.register]: User successfully registered and saved with ID: "${user.id}", Email: "${user.email}"`,
+        `[AuthService.register]: Owner successfully registered with ID: "${user.id}". Workspace creation deferred to user manual creation.`,
       );
 
       const userName =
@@ -145,9 +224,14 @@ export class AuthService {
         userId: user.id,
         email: user.email,
         name: userName,
+        isInvited: false,
+        workspaceId: null,
       });
 
-      return user;
+      return Object.assign(user, {
+        isInvited: false,
+        workspaceId: null,
+      });
     } catch (error: any) {
       console.error(
         `[AuthService.register ERROR] Exception during registration for ${registerDto.email}:`,

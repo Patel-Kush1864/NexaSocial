@@ -92,6 +92,52 @@ describe('InstagramService (Unit)', () => {
         'https://nexasocial.com/api/social/callback/instagram',
       );
     });
+
+    it('should throw InternalServerErrorException if client secret is missing', () => {
+      jest.spyOn(configService, 'get').mockImplementation((key: string) => {
+        if (key === 'INSTAGRAM_CLIENT_ID') return 'mock_ig_client_id';
+        return null;
+      });
+      delete process.env.INSTAGRAM_CLIENT_SECRET;
+
+      expect(() => service.getAuthUrl('state')).toThrow(InternalServerErrorException);
+    });
+
+    it('should detect malformed or invalid callback URL configuration', () => {
+      jest.spyOn(configService, 'get').mockImplementation((key: string) => {
+        if (key === 'INSTAGRAM_CLIENT_ID') return 'mock_ig_client_id';
+        if (key === 'INSTAGRAM_CLIENT_SECRET') return 'mock_ig_client_secret';
+        if (key === 'INSTAGRAM_REDIRECT_URI') return 'not-a-valid-url';
+        return null;
+      });
+
+      expect(() => service.canonicalRedirectUri).toThrow(InternalServerErrorException);
+    });
+
+    it('should reject invalid protocol (e.g. ftp:) in redirect URI', () => {
+      jest.spyOn(configService, 'get').mockImplementation((key: string) => {
+        if (key === 'INSTAGRAM_CLIENT_ID') return 'mock_ig_client_id';
+        if (key === 'INSTAGRAM_CLIENT_SECRET') return 'mock_ig_client_secret';
+        if (key === 'INSTAGRAM_REDIRECT_URI')
+          return 'ftp://localhost:5000/api/social/callback/instagram';
+        return null;
+      });
+
+      expect(() => service.canonicalRedirectUri).toThrow(/invalid protocol/i);
+    });
+
+    it('should not double-encode query parameters in authorization URL', () => {
+      const authUrl = service.getAuthUrl('test_state_123');
+      const parsed = new URL(authUrl);
+
+      // Decoding search parameter should give exact URI, not double-encoded %253A
+      const redirectUriParam = parsed.searchParams.get('redirect_uri');
+      expect(redirectUriParam).toBe(
+        'http://localhost:5000/api/social/callback/instagram',
+      );
+      expect(authUrl).not.toContain('%253A');
+      expect(authUrl).not.toContain('%252F');
+    });
   });
 
   describe('validateConfiguration', () => {
@@ -266,6 +312,43 @@ describe('InstagramService (Unit)', () => {
 
       await expect(service.exchangeCode('invalid_code')).rejects.toThrow(BadRequestException);
     });
+
+    it('should never log client secrets, codes, or tokens', async () => {
+      const logSpy = jest.spyOn((service as any).logger, 'log');
+      const warnSpy = jest.spyOn((service as any).logger, 'warn');
+      const errorSpy = jest.spyOn((service as any).logger, 'error');
+
+      const secretValue = 'mock_ig_client_secret';
+      const secretCode = 'super_secret_auth_code_xyz123';
+      const secretToken = 'super_secret_access_token_abc456';
+
+      global.fetch = jest.fn().mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          access_token: secretToken,
+          expires_in: 3600,
+        }),
+      } as any).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          access_token: 'long_lived_token_789',
+          expires_in: 5184000,
+        }),
+      } as any);
+
+      service.getAuthUrl('state_test');
+      await service.exchangeCode(secretCode);
+
+      const allLoggedMessages = [
+        ...logSpy.mock.calls.map((c) => c[0]),
+        ...warnSpy.mock.calls.map((c) => c[0]),
+        ...errorSpy.mock.calls.map((c) => c[0]),
+      ].join(' ');
+
+      expect(allLoggedMessages).not.toContain(secretValue);
+      expect(allLoggedMessages).not.toContain(secretCode);
+      expect(allLoggedMessages).not.toContain(secretToken);
+    });
   });
 
   describe('fetchProfile', () => {
@@ -291,6 +374,104 @@ describe('InstagramService (Unit)', () => {
       expect(profile.metadata?.accountType).toBe('MEDIA_CREATOR');
       expect(profile.metadata?.isLiveEligible).toBe(true);
       expect(profile.metadata?.followers).toBe(5200);
+    });
+  });
+
+  describe('sanitizeErrorMessage', () => {
+    it('should mask client secrets, access tokens, and codes from error messages', () => {
+      const raw =
+        'Error at https://api.instagram.com/oauth/access_token?client_secret=secret123&code=code456 with Bearer token_abc and access_token=tok_xyz';
+      const sanitized = service.sanitizeErrorMessage(raw);
+
+      expect(sanitized).not.toContain('secret123');
+      expect(sanitized).not.toContain('code456');
+      expect(sanitized).not.toContain('token_abc');
+      expect(sanitized).not.toContain('tok_xyz');
+      expect(sanitized).toContain('client_secret=***');
+      expect(sanitized).toContain('code=***');
+      expect(sanitized).toContain('Bearer ***');
+      expect(sanitized).toContain('access_token=***');
+    });
+  });
+
+  describe('getPreflightDiagnostics & OAuth Validation', () => {
+    it('should return valid diagnostic report when configuration is correct', () => {
+      const diag = service.getPreflightDiagnostics();
+
+      expect(diag.isValid).toBe(true);
+      expect(diag.errors).toHaveLength(0);
+      expect(diag.flow).toBe('Instagram API with Instagram Login (Business Login for Instagram)');
+      expect(diag.authHost).toBe('https://www.instagram.com');
+      expect(diag.authPath).toBe('/oauth/authorize');
+      expect(diag.backendCallbackRoute).toBe('/api/social/callback/instagram');
+      expect(diag.canonicalRedirectUri).toBe('http://localhost:5000/api/social/callback/instagram');
+      expect(diag.tokenExchangeUri).toBe('http://localhost:5000/api/social/callback/instagram');
+      expect(diag.diagnosticComparison.configuredMatchesCanonical).toBe(true);
+      expect(diag.diagnosticComparison.authMatchesTokenExchange).toBe(true);
+      expect(diag.diagnosticComparison.routeMatchesBackendRouter).toBe(true);
+      expect(diag.diagnosticComparison.noDoubleEncoding).toBe(true);
+    });
+
+    it('should detect missing client ID and report descriptive preflight error', () => {
+      jest.spyOn(configService, 'get').mockReturnValue(undefined);
+      delete process.env.INSTAGRAM_CLIENT_ID;
+
+      const diag = service.getPreflightDiagnostics();
+      expect(diag.isValid).toBe(false);
+      expect(diag.errors).toContain('Missing INSTAGRAM_CLIENT_ID in server environment');
+    });
+
+    it('should detect missing client secret and report descriptive preflight error', () => {
+      jest.spyOn(configService, 'get').mockImplementation((k: string) => {
+        if (k === 'INSTAGRAM_CLIENT_ID') return 'mock_12345';
+        return null;
+      });
+      delete process.env.INSTAGRAM_CLIENT_SECRET;
+
+      const diag = service.getPreflightDiagnostics();
+      expect(diag.isValid).toBe(false);
+      expect(diag.errors).toContain('Missing INSTAGRAM_CLIENT_SECRET in server environment');
+    });
+
+    it('should detect route mismatch if redirect URI path does not match backend router', () => {
+      jest.spyOn(configService, 'get').mockImplementation((k: string) => {
+        if (k === 'INSTAGRAM_CLIENT_ID') return 'mock_12345';
+        if (k === 'INSTAGRAM_CLIENT_SECRET') return 'secret_12345';
+        if (k === 'INSTAGRAM_REDIRECT_URI') return 'https://example.com/api/auth/wrong/path';
+        return null;
+      });
+
+      // Note: canonicalRedirectUri normalizes the path to /api/social/callback/instagram if only root or missing,
+      // but if a custom subpath is set, it validates against backend route.
+      expect(service.canonicalRedirectUri).toContain('/api/auth/wrong/path');
+      const diag = service.getPreflightDiagnostics();
+      expect(diag.isValid).toBe(false);
+      expect(diag.errors.some((e) => e.includes('does not match backend callback route'))).toBe(true);
+    });
+
+    it('should verify character-for-character consistency between auth dialog and token exchange URIs', async () => {
+      const diag = service.getPreflightDiagnostics();
+      const authUrl = service.getAuthUrl('state_char_test');
+      const parsed = new URL(authUrl);
+      const authUri = parsed.searchParams.get('redirect_uri');
+
+      expect(authUri).toBe(diag.canonicalRedirectUri);
+      expect(authUri).toBe(diag.tokenExchangeUri);
+      expect(parsed.origin).toBe('https://www.instagram.com');
+      expect(parsed.pathname).toBe('/oauth/authorize');
+    });
+
+    it('should mask client ID properly except for the last 4 characters', () => {
+      jest.spyOn(configService, 'get').mockImplementation((k: string) => {
+        if (k === 'INSTAGRAM_CLIENT_ID') return '990277277374737';
+        if (k === 'INSTAGRAM_CLIENT_SECRET') return 'test_secret';
+        if (k === 'INSTAGRAM_REDIRECT_URI') return 'http://localhost:5000/api/social/callback/instagram';
+        return null;
+      });
+
+      const diag = service.getPreflightDiagnostics();
+      expect(diag.maskedClientId).toBe('***********4737');
+      expect(diag.maskedClientId).not.toBe('990277277374737');
     });
   });
 });

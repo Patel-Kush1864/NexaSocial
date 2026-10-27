@@ -50,15 +50,34 @@ export class SubscriptionGuard implements CanActivate {
       return true;
     }
 
-    // 5. Query user subscription entitlement from backend
-    const entitlements = await this.subscriptionsService.getEntitlements(user.id);
+    // Resolve workspace ID from headers, query, params, or body safely
+    const pathUrl = (request.url || '').toLowerCase();
+    const workspaceId =
+      (request.headers?.['x-workspace-id'] as string) ||
+      (request.query?.workspaceId as string) ||
+      (request.params?.workspaceId as string) ||
+      (request.body?.workspaceId as string) ||
+      (request.workspaceId as string) ||
+      (request.workspaceMember?.workspaceId as string) ||
+      (pathUrl.includes('/workspaces/') ? (request.params?.id as string) : undefined);
+
+    // 5. Query workspace subscription entitlement from backend
+    const entitlements = await this.subscriptionsService.getEntitlements(
+      user.id,
+      workspaceId,
+    );
+
     if (!entitlements.hasActiveSubscription) {
+      const isOwner = entitlements.isWorkspaceOwner !== false;
       throw new ForbiddenException({
         statusCode: 403,
         error: 'Forbidden',
-        message: 'Choose a subscription plan to unlock NexaSocial features.',
+        message: isOwner
+          ? 'Choose a subscription plan to unlock NexaSocial features.'
+          : 'This workspace does not currently have an active subscription. Please contact the workspace owner.',
         code: 'SUBSCRIPTION_REQUIRED',
         status: entitlements.status,
+        isWorkspaceOwner: isOwner,
       });
     }
 
@@ -74,7 +93,7 @@ export class SubscriptionGuard implements CanActivate {
         throw new ForbiddenException({
           statusCode: 403,
           error: 'Forbidden',
-          message: `Feature '${String(requiredFeature)}' is not included in your current subscription plan. Please upgrade to unlock.`,
+          message: `Feature '${String(requiredFeature)}' is not included in the workspace subscription plan. Please contact the workspace owner to upgrade.`,
           code: 'PLAN_FEATURE_RESTRICTED',
           requiredFeature,
         });

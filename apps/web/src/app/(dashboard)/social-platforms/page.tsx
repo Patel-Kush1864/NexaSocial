@@ -29,14 +29,28 @@ export default function SocialPlatformsPage() {
     );
   }
 
-  const platforms = data?.data || [];
-  
+  const platforms = Array.isArray(data?.data)
+    ? data.data
+    : Array.isArray(data)
+      ? data
+      : [];
+
   const total = platforms.length;
-  const enabled = platforms.filter((p: any) => p.enabled).length;
-  const disabled = platforms.filter((p: any) => !p.enabled).length;
-  const healthy = platforms.filter((p: any) => p.health === 'HEALTHY').length;
-  const degraded = platforms.filter((p: any) => p.health === 'DEGRADED').length;
-  const down = platforms.filter((p: any) => p.health === 'DOWN').length;
+  const enabled = platforms.filter(
+    (p: any) => p.enabled ?? p.isEnabled ?? false,
+  ).length;
+  const disabled = platforms.filter(
+    (p: any) => !(p.enabled ?? p.isEnabled ?? false),
+  ).length;
+  const healthy = platforms.filter(
+    (p: any) => (p.health || p.status) === 'HEALTHY',
+  ).length;
+  const degraded = platforms.filter(
+    (p: any) => (p.health || p.status) === 'DEGRADED',
+  ).length;
+  const down = platforms.filter(
+    (p: any) => (p.health || p.status) === 'DOWN',
+  ).length;
 
   return (
     <div className="flex-1 space-y-6 p-8 pt-6">

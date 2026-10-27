@@ -8,6 +8,7 @@ import {
 } from '../../../src/subscriptions/entities/user-subscription.entity';
 import { ActivityLog } from '../../../src/users/entities/activity-log.entity';
 import { Workspace } from '../../../src/workspaces/entities/workspace.entity';
+import { WorkspaceMember } from '../../../src/workspace-members/entities/workspace-member.entity';
 import { DataSource } from 'typeorm';
 import { PlansService } from '../../../src/plans/plans.service';
 import { PaymentsService } from '../../../src/payments/payments.service';
@@ -57,6 +58,10 @@ describe('SubscriptionsService (Unit)', () => {
         },
         {
           provide: getRepositoryToken(Workspace),
+          useValue: createMockRepository(),
+        },
+        {
+          provide: getRepositoryToken(WorkspaceMember),
           useValue: createMockRepository(),
         },
         {

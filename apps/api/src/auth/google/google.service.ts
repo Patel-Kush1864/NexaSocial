@@ -50,24 +50,9 @@ export class GoogleService {
       if (defaultWorkspace) {
         targetWorkspaceId = defaultWorkspace.id;
       } else {
-        const firstUsers = await this.userRepository.find({
-          order: { created_at: 'ASC' },
-          take: 1,
-        });
-        const firstUser = firstUsers[0];
-        if (!firstUser) {
-          throw new BadRequestException(
-            'Cannot connect YouTube account: No active workspace found.',
-          );
-        }
-        const newWorkspace = this.workspaceRepository.create({
-          ownerId: firstUser.id,
-          name: 'Main Workspace',
-          slug: 'main-workspace-' + Math.random().toString(36).substring(7),
-          status: 'ACTIVE',
-        });
-        const savedWs = await this.workspaceRepository.save(newWorkspace);
-        targetWorkspaceId = savedWs.id;
+        throw new BadRequestException(
+          'Cannot connect YouTube account: No active workspace found. Please create your workspace first.',
+        );
       }
     }
 

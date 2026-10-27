@@ -64,6 +64,8 @@ export const validationSchema = Joi.object({
   INSTAGRAM_CLIENT_ID: Joi.string().allow('').optional(),
   INSTAGRAM_CLIENT_SECRET: Joi.string().allow('').optional(),
   INSTAGRAM_REDIRECT_URI: Joi.string().uri().allow('').optional(),
+  INSTAGRAM_CALLBACK_URL: Joi.string().uri().allow('').optional(),
+  META_INSTAGRAM_REDIRECT_URI: Joi.string().uri().allow('').optional(),
 
   // Google OAuth
   GOOGLE_CLIENT_ID: Joi.string().allow('').optional(),

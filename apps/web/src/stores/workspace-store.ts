@@ -27,14 +27,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       setWorkspaces: (workspaces) => {
         const { currentWorkspace } = get();
+        const matched = currentWorkspace
+          ? workspaces.find((w) => w.id === currentWorkspace.id)
+          : null;
         set({
           workspaces,
-          // Auto-select first workspace if none selected
-          currentWorkspace:
-            currentWorkspace &&
-            workspaces.find((w) => w.id === currentWorkspace.id)
-              ? currentWorkspace
-              : workspaces[0] || null,
+          currentWorkspace: matched ? { ...matched } : workspaces[0] ? { ...workspaces[0] } : null,
         });
       },
 

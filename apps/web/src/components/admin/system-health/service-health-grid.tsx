@@ -3,7 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { SystemHealthResult } from '@/types';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime } from '@/lib/utils';
 
 function ServiceCard({ service }: { service: SystemHealthResult['services'][0] }) {
   const statusColor = {
@@ -29,7 +29,7 @@ function ServiceCard({ service }: { service: SystemHealthResult['services'][0] }
           Uptime: {service.uptimePercentage}%
         </p>
         <p className="text-xs text-muted-foreground mt-1">
-          Checked {formatDistanceToNow(new Date(service.checkedAt), { addSuffix: true })}
+          Checked {formatRelativeTime(service.checkedAt, { addSuffix: true })}
         </p>
       </CardContent>
     </Card>

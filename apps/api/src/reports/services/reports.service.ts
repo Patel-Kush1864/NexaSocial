@@ -78,13 +78,17 @@ export class ReportsService {
     query: QueryReportsDto,
   ) {
     if (query.dateFrom) {
+      const from = new Date(query.dateFrom);
       qb.andWhere(`${alias}.${column} >= :dateFrom`, {
-        dateFrom: new Date(query.dateFrom),
+        dateFrom: from,
       });
     }
     if (query.dateTo) {
+      const to = new Date(query.dateTo);
+      // Ensure dateTo covers the end of the day so current day records are never cut off
+      to.setHours(23, 59, 59, 999);
       qb.andWhere(`${alias}.${column} <= :dateTo`, {
-        dateTo: new Date(query.dateTo),
+        dateTo: to,
       });
     }
   }
@@ -99,9 +103,7 @@ export class ReportsService {
   }
 
   private async getUsersReport(query: QueryReportsDto) {
-    const qb = this.userRepository
-      .createQueryBuilder('user')
-      .leftJoin('user.memberships', 'membership');
+    const qb = this.userRepository.createQueryBuilder('user');
 
     this.applyDateFilter(qb, 'user', 'created_at', query);
 
@@ -109,13 +111,14 @@ export class ReportsService {
       qb.andWhere('user.status = :status', { status: query.status });
     }
     if (query.workspaceId) {
-      qb.andWhere('membership.workspace_id = :workspaceId', {
-        workspaceId: query.workspaceId,
-      });
+      qb.andWhere(
+        'user.id IN (SELECT user_id FROM workspace_members WHERE workspace_id = :workspaceId)',
+        { workspaceId: query.workspaceId },
+      );
     }
     if (query.search) {
       qb.andWhere(
-        '(user.email ILIKE :search OR user.first_name ILIKE :search OR user.last_name ILIKE :search)',
+        '(LOWER(user.email) LIKE LOWER(:search) OR LOWER(user.first_name) LIKE LOWER(:search) OR LOWER(user.last_name) LIKE LOWER(:search))',
         { search: `%${query.search}%` },
       );
     }
@@ -126,7 +129,7 @@ export class ReportsService {
 
     const activeCount = await summaryQb
       .clone()
-      .andWhere('user.status = :activeStatus', { activeStatus: 'ACTIVE' })
+      .andWhere('(user.status = :activeStatus OR user.is_active = true)', { activeStatus: 'ACTIVE' })
       .getCount();
 
     // Sorting and Pagination
@@ -142,17 +145,16 @@ export class ReportsService {
     qb.orderBy(sortBy, query.sortOrder || 'DESC');
     this.applyPagination(qb, query);
 
-    qb.select([
-      'user.id',
-      'user.email',
-      'user.firstName',
-      'user.lastName',
-      'user.status',
-      'user.createdAt',
-      'user.lastLoginAt',
-    ]);
+    const [users, count] = await qb.getManyAndCount();
 
-    const [rows, count] = await qb.getManyAndCount();
+    const rows = users.map((u) => ({
+      id: u.id,
+      email: u.email,
+      firstName: u.firstName || '',
+      lastName: u.lastName || '',
+      status: u.status || (u.isActive ? 'ACTIVE' : 'INACTIVE'),
+      createdAt: u.created_at,
+    }));
 
     // Format for charting (Users grouped by day/month based on dateFrom/dateTo)
     const chartData = await this.buildTimeSeriesChart(
@@ -177,13 +179,12 @@ export class ReportsService {
   private async getWorkspacesReport(query: QueryReportsDto) {
     const qb = this.workspaceRepository
       .createQueryBuilder('workspace')
-      .leftJoinAndSelect('workspace.owner', 'owner')
-      .leftJoinAndSelect('workspace.members', 'members');
+      .leftJoinAndSelect('workspace.owner', 'owner');
 
     this.applyDateFilter(qb, 'workspace', 'created_at', query);
 
     if (query.search) {
-      qb.andWhere('(workspace.name ILIKE :search)', {
+      qb.andWhere('(LOWER(workspace.name) LIKE LOWER(:search))', {
         search: `%${query.search}%`,
       });
     }
@@ -202,8 +203,8 @@ export class ReportsService {
       name: w.name,
       ownerEmail: w.owner?.email,
       ownerName:
-        `${w.owner?.firstName || ''} ${w.owner?.lastName || ''}`.trim(),
-      memberCount: 0,
+        `${w.owner?.firstName || ''} ${w.owner?.lastName || ''}`.trim() || 'Owner',
+      memberCount: 1,
       createdAt: w.created_at,
     }));
 
@@ -229,7 +230,6 @@ export class ReportsService {
   private async getSubscriptionsReport(query: QueryReportsDto) {
     const qb = this.subRepository
       .createQueryBuilder('sub')
-      .leftJoinAndSelect('sub.workspace', 'workspace')
       .leftJoinAndSelect('sub.plan', 'plan')
       .leftJoinAndSelect('sub.user', 'user');
 
@@ -240,9 +240,10 @@ export class ReportsService {
     if (query.planId)
       qb.andWhere('sub.plan_id = :planId', { planId: query.planId });
     if (query.workspaceId)
-      qb.andWhere('sub.workspace_id = :workspaceId', {
-        workspaceId: query.workspaceId,
-      });
+      qb.andWhere(
+        'sub.user_id IN (SELECT user_id FROM workspace_members WHERE workspace_id = :workspaceId)',
+        { workspaceId: query.workspaceId },
+      );
 
     const total = await qb.getCount();
     const activeCount = await qb
@@ -259,7 +260,8 @@ export class ReportsService {
       id: s.id,
       status: s.status,
       planName: s.plan?.name,
-      workspaceName: undefined,
+      userEmail: s.user?.email,
+      userName: `${s.user?.firstName || ''} ${s.user?.lastName || ''}`.trim() || 'User',
       createdAt: s.created_at,
     }));
 
@@ -326,8 +328,14 @@ export class ReportsService {
 
     const rawChart = await chartQb.getRawMany();
 
+    const formatDate = (val: any) => {
+      if (!val) return '';
+      if (val instanceof Date) return val.toISOString().split('T')[0];
+      return String(val);
+    };
+
     const chartData = {
-      labels: [...new Set(rawChart.map((r) => r.date))],
+      labels: [...new Set(rawChart.map((r) => formatDate(r.date)))],
       series: [] as { name: string; data: number[] }[],
     };
 
@@ -335,7 +343,7 @@ export class ReportsService {
     currencies.forEach((currency) => {
       const dataPoints = chartData.labels.map((date) => {
         const record = rawChart.find(
-          (r) => r.date === date && r.currency === currency,
+          (r) => formatDate(r.date) === date && r.currency === currency,
         );
         return record ? parseFloat(record.netRevenue) : 0;
       });
@@ -402,7 +410,7 @@ export class ReportsService {
       qb.andWhere('payment.currency = :currency', { currency: query.currency });
     if (query.search) {
       qb.andWhere(
-        '(payment.id ILIKE :search OR payment.gateway_payment_id ILIKE :search OR user.email ILIKE :search)',
+        '(LOWER(payment.id) LIKE LOWER(:search) OR LOWER(payment.gateway_payment_id) LIKE LOWER(:search) OR LOWER(user.email) LIKE LOWER(:search))',
         { search: `%${query.search}%` },
       );
     }
@@ -472,8 +480,7 @@ export class ReportsService {
     const qb = this.streamRepository
       .createQueryBuilder('stream')
       .leftJoinAndSelect('stream.workspace', 'workspace')
-      .leftJoin('stream.platforms', 'platforms')
-      .addSelect(['platforms.id', 'platforms.platformId']);
+      .leftJoinAndSelect('stream.platforms', 'platforms');
 
     this.applyDateFilter(qb, 'stream', 'created_at', query);
 
@@ -484,7 +491,7 @@ export class ReportsService {
         workspaceId: query.workspaceId,
       });
     if (query.search)
-      qb.andWhere('stream.title ILIKE :search', {
+      qb.andWhere('LOWER(stream.title) LIKE LOWER(:search)', {
         search: `%${query.search}%`,
       });
 
@@ -541,7 +548,7 @@ export class ReportsService {
     this.applyDateFilter(qb, 'account', 'created_at', query);
 
     if (query.platform)
-      qb.andWhere('account.platform = :platform', { platform: query.platform });
+      qb.andWhere('account.platformName = :platform', { platform: query.platform });
     if (query.workspaceId)
       qb.andWhere('account.workspace_id = :workspaceId', {
         workspaceId: query.workspaceId,
@@ -551,9 +558,9 @@ export class ReportsService {
 
     const platformCounts = await qb
       .clone()
-      .select('account.platform', 'platform')
+      .select('account.platformName', 'platform')
       .addSelect('COUNT(account.id)', 'count')
-      .groupBy('account.platform')
+      .groupBy('account.platformName')
       .getRawMany();
 
     const chartData = {
@@ -574,7 +581,7 @@ export class ReportsService {
     const rows = accounts.map((a) => ({
       id: a.id,
       platform: a.platformName,
-      username: a.platformName,
+      username: a.name || a.platformName,
       status: a.status,
       workspaceName: a.workspace?.name,
       createdAt: a.created_at,
@@ -609,7 +616,13 @@ export class ReportsService {
       .getRawMany();
 
     return {
-      labels: rawData.map((r) => r.date),
+      labels: rawData.map((r) => {
+        if (!r.date) return '';
+        if (r.date instanceof Date) {
+          return r.date.toISOString().split('T')[0];
+        }
+        return String(r.date);
+      }),
       series: [
         {
           name: 'Count',

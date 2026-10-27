@@ -4,6 +4,7 @@
 
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import type { ApiError, TokenResponse } from '@/types';
+import { useWorkspaceStore } from '@/stores/workspace-store';
 
 const getApiBaseUrl = () => {
   if (process.env.NEXT_PUBLIC_API_URL) {
@@ -40,8 +41,46 @@ export function getAccessToken(): string | null {
 // ── Request Interceptor ───────────────────
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    if (accessToken && config.headers) {
-      config.headers.Authorization = `Bearer ${accessToken}`;
+    let token = accessToken;
+    if (!token && typeof window !== 'undefined') {
+      token = localStorage.getItem('nexasocial_access_token');
+    }
+    if (token && config.headers) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    // Do not attach x-workspace-id for collection or auth endpoints
+    const requestUrl = (config.url || '').toLowerCase();
+    const isCollectionOrPublic =
+      requestUrl === '/workspaces' ||
+      requestUrl === '/workspaces/' ||
+      requestUrl.startsWith('/auth') ||
+      requestUrl.startsWith('/plans') ||
+      requestUrl.startsWith('/workspaces/invitations');
+
+    // Attach x-workspace-id if available from in-memory Zustand store or localStorage
+    if (
+      !isCollectionOrPublic &&
+      typeof window !== 'undefined' &&
+      config.headers &&
+      !config.headers['x-workspace-id']
+    ) {
+      try {
+        const memoryWsId = useWorkspaceStore.getState()?.currentWorkspace?.id;
+        if (memoryWsId) {
+          config.headers['x-workspace-id'] = memoryWsId;
+        } else {
+          const stored = localStorage.getItem('nexasocial-workspace');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            const workspaceId = parsed?.state?.currentWorkspace?.id;
+            if (workspaceId) {
+              config.headers['x-workspace-id'] = workspaceId;
+            }
+          }
+        }
+      } catch {
+        // ignore parse errors
+      }
     }
     return config;
   },

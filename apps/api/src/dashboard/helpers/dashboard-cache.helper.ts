@@ -43,7 +43,7 @@ export class DashboardCacheHelper {
   }
 
   async invalidateWorkspaceCache(workspaceId: string): Promise<void> {
-    const prefixes = ['summary', 'statistics', 'widgets'];
+    const prefixes = ['summary', 'statistics', 'widgets', 'overview'];
     for (const prefix of prefixes) {
       const key = this.getCacheKey(prefix, workspaceId);
       try {

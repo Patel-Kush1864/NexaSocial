@@ -11,6 +11,7 @@ import { ConnectedAccount } from '../../social/entities/connected-account.entity
 import { LiveStream } from '../../livestreams/entities/livestream.entity';
 import { Payment } from '../../payments/entities/payment.entity';
 import { AuditService } from '../../audit/services/audit.service';
+import { UserSession } from '../../users/entities/user-session.entity';
 
 describe('AdminService', () => {
   let service: AdminService;
@@ -63,6 +64,7 @@ describe('AdminService', () => {
         { provide: getRepositoryToken(Payment), useFactory: mockRepository },
         { provide: AuditService, useFactory: mockAuditService },
         { provide: EventEmitter2, useFactory: mockEventEmitter },
+        { provide: getRepositoryToken(UserSession), useFactory: mockRepository },
         { provide: DataSource, useFactory: mockDataSource },
       ],
     }).compile();

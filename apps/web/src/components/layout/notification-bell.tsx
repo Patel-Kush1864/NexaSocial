@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { Bell, CheckCheck, Trash2, ArrowRight } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime } from '@/lib/utils';
 
 export function NotificationBell() {
   const { currentWorkspace } = useWorkspaceStore();
@@ -82,7 +82,7 @@ export function NotificationBell() {
                     {n.message}
                   </p>
                   <p className="text-[10px] text-muted-foreground/70">
-                    {formatDistanceToNow(new Date(n.createdAt), {
+                    {formatRelativeTime(n.createdAt || (n as any).created_at, {
                       addSuffix: true,
                     })}
                   </p>

@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
 import {
   Controller,
   Get,
@@ -16,7 +19,7 @@ import { WorkspaceRole } from '../../workspace-members/entities/workspace-member
 @Controller('dashboard')
 @UseGuards(JwtAuthGuard, WorkspaceRoleGuard)
 export class DashboardController {
-  constructor(private readonly service: DashboardService) {}
+  constructor(private readonly service: DashboardService) { }
 
   @Get()
   @RequireWorkspaceRole(
@@ -33,6 +36,29 @@ export class DashboardController {
     const isPlatformScope =
       user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
     return this.service.getSummary(user.id, isPlatformScope, workspaceId);
+  }
+
+  @Get('overview')
+  @RequireWorkspaceRole(
+    WorkspaceRole.OWNER,
+    WorkspaceRole.MANAGER,
+    WorkspaceRole.CREATOR,
+    WorkspaceRole.VIEWER,
+  )
+  async getOverview(
+    @CurrentUser() user: CurrentUserType,
+    @Query('workspaceId') workspaceId?: string,
+    @Query('range') range?: string,
+  ) {
+    if (!user) throw new BadRequestException('User context missing');
+    const isPlatformScope =
+      user.role === 'SUPER_ADMIN' || user.role === 'ADMIN';
+    return this.service.getOverview(
+      user.id,
+      isPlatformScope,
+      workspaceId,
+      range,
+    );
   }
 
   @Get('statistics')

@@ -150,11 +150,12 @@ export class FacebookController {
   @UseGuards(JwtAuthGuard)
   async getAccounts(
     @CurrentUser() user: CurrentUserType,
+    @Query('workspaceId') workspaceId?: string,
   ): Promise<FacebookAccountResponseDto[]> {
     if (!user || !user.id) {
       throw new UnauthorizedException('User authentication required');
     }
-    const accounts = await this.facebookProvider.getAccounts(user.id);
+    const accounts = await this.facebookProvider.getAccounts(user.id, workspaceId);
     return accounts.map((acc) => FacebookAccountResponseDto.fromEntity(acc));
   }
 
@@ -270,11 +271,12 @@ export class SocialAccountsFacebookController {
   @UseGuards(JwtAuthGuard)
   async getAccounts(
     @CurrentUser() user: CurrentUserType,
+    @Query('workspaceId') workspaceId?: string,
   ): Promise<FacebookAccountResponseDto[]> {
     if (!user || !user.id) {
       throw new UnauthorizedException('User authentication required');
     }
-    const accounts = await this.facebookProvider.getAccounts(user.id);
+    const accounts = await this.facebookProvider.getAccounts(user.id, workspaceId);
     return accounts.map((acc) => FacebookAccountResponseDto.fromEntity(acc));
   }
 

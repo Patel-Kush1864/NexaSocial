@@ -12,10 +12,16 @@ import { ActivityLog } from '../users/entities/activity-log.entity';
 import { LoggerModule } from '../logger/logger.module';
 import { MailModule } from '../mail/mail.module';
 import { Workspace } from '../workspaces/entities/workspace.entity';
+import { WorkspaceMember } from '../workspace-members/entities/workspace-member.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserSubscription, ActivityLog, Workspace]),
+    TypeOrmModule.forFeature([
+      UserSubscription,
+      ActivityLog,
+      Workspace,
+      WorkspaceMember,
+    ]),
     PlansModule,
     forwardRef(() => PaymentsModule),
     LoggerModule,

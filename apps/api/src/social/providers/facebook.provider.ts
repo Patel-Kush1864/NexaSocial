@@ -18,6 +18,8 @@ import {
 } from '../entities/social-account.entity';
 import { FacebookService } from '../services/facebook.service';
 import { encrypt } from '../utils/crypto.helper';
+import { Workspace } from '../../workspaces/entities/workspace.entity';
+import { WorkspaceMember } from '../../workspace-members/entities/workspace-member.entity';
 
 @Injectable()
 export class FacebookProvider implements SocialProvider {
@@ -30,15 +32,20 @@ export class FacebookProvider implements SocialProvider {
     private readonly accountRepository: Repository<ConnectedAccount>,
     @InjectRepository(OAuthToken)
     private readonly tokenRepository: Repository<OAuthToken>,
+    @InjectRepository(Workspace)
+    private readonly workspaceRepository: Repository<Workspace>,
+    @InjectRepository(WorkspaceMember)
+    private readonly memberRepository: Repository<WorkspaceMember>,
     private readonly facebookService: FacebookService,
   ) {}
 
   /**
    * Generates OAuth Authorization URL with CSRF state validation token.
    */
-  connect(userId: string, customState?: string): string {
+  connect(userId: string, customState?: string, workspaceId?: string): string {
     const stateObj = {
       userId,
+      workspaceId,
       nonce: Math.random().toString(36).substring(2),
       customState,
       timestamp: Date.now(),
@@ -55,15 +62,19 @@ export class FacebookProvider implements SocialProvider {
     userId: string,
     stateStr?: string,
   ): Promise<SocialAccount[]> {
+    let stateWorkspaceId: string | undefined;
     if (stateStr) {
       try {
         const decoded = JSON.parse(
           Buffer.from(stateStr, 'base64').toString('utf8'),
-        ) as { userId?: string };
+        ) as { userId?: string; workspaceId?: string };
         if (decoded?.userId && decoded.userId !== userId) {
           throw new BadRequestException(
             'OAuth state validation failed: user mismatch',
           );
+        }
+        if (decoded?.workspaceId) {
+          stateWorkspaceId = decoded.workspaceId;
         }
       } catch (err: unknown) {
         if (err instanceof BadRequestException) throw err;
@@ -122,7 +133,7 @@ export class FacebookProvider implements SocialProvider {
       account.status = SocialAccountStatus.CONNECTED;
 
       const saved = await this.socialAccountRepository.save(account);
-      await this.syncConnectedAccount(saved);
+      await this.syncConnectedAccount(saved, stateWorkspaceId);
       savedAccounts.push(saved);
     } else {
       // Save or update a SocialAccount record for each connected page
@@ -158,7 +169,7 @@ export class FacebookProvider implements SocialProvider {
         account.status = SocialAccountStatus.CONNECTED;
 
         const saved = await this.socialAccountRepository.save(account);
-        await this.syncConnectedAccount(saved);
+        await this.syncConnectedAccount(saved, stateWorkspaceId);
         savedAccounts.push(saved);
       }
     }
@@ -203,41 +214,113 @@ export class FacebookProvider implements SocialProvider {
    * Disconnects a connected Facebook account by ID.
    */
   async disconnect(id: string, userId: string): Promise<void> {
-    const account = await this.socialAccountRepository.findOne({
-      where: { id, userId, provider: In(['facebook', 'FACEBOOK']) },
+    let account = await this.socialAccountRepository.findOne({
+      where: { id, provider: In(['facebook', 'FACEBOOK']) },
     });
 
     if (!account) {
+      account = await this.socialAccountRepository.findOne({
+        where: [
+          { pageId: id, provider: In(['facebook', 'FACEBOOK']) },
+          { providerUserId: id, provider: In(['facebook', 'FACEBOOK']) },
+        ],
+      });
+    }
+
+    // Also check connected_accounts if passed ID is from connected_accounts
+    const connAcc = await this.accountRepository.findOne({
+      where: { id },
+    });
+
+    if (!account && connAcc?.platformUserId) {
+      account = await this.socialAccountRepository.findOne({
+        where: [
+          { pageId: connAcc.platformUserId, provider: In(['facebook', 'FACEBOOK']) },
+          { providerUserId: connAcc.platformUserId, provider: In(['facebook', 'FACEBOOK']) },
+        ],
+      });
+    }
+
+    if (!account && !connAcc) {
       throw new NotFoundException('Facebook account connection not found');
     }
 
-    account.connected = false;
-    account.status = SocialAccountStatus.DISCONNECTED;
-    await this.socialAccountRepository.remove(account);
+    if (account) {
+      const pageId = account.pageId;
+      const providerUserId = account.providerUserId;
+      const accountId = account.id;
+
+      account.connected = false;
+      account.status = SocialAccountStatus.DISCONNECTED;
+      await this.socialAccountRepository.remove(account);
+
+      // Clean up connected_accounts matching this Facebook account
+      const connectedAccounts = await this.accountRepository.find({
+        where: [
+          { id: accountId },
+          ...(pageId ? [{ platformUserId: pageId }] : []),
+          ...(providerUserId ? [{ platformUserId: providerUserId }] : []),
+        ],
+      });
+
+      for (const ca of connectedAccounts) {
+        await this.accountRepository.remove(ca);
+        await this.tokenRepository.delete({ connectedAccountId: ca.id });
+      }
+
+      await this.tokenRepository.delete({ connectedAccountId: accountId });
+    }
+
+    if (connAcc) {
+      await this.accountRepository.remove(connAcc);
+      await this.tokenRepository.delete({ connectedAccountId: connAcc.id });
+    }
+
     this.logger.log(
-      `Disconnected Facebook account ID ${id} for user ${userId}`,
+      `Disconnected Facebook account ID ${id} for user ${userId} (cleaned up social_accounts & connected_accounts)`,
     );
   }
 
   /**
-   * Gets all active connected Facebook accounts for user.
+   * Gets all active connected Facebook accounts for user and workspace context.
    */
-  async getAccounts(userId: string): Promise<SocialAccount[]> {
-    return this.socialAccountRepository.find({
+  async getAccounts(userId: string, workspaceId?: string): Promise<SocialAccount[]> {
+    let userIds = [userId];
+
+    if (workspaceId) {
+      try {
+        const workspace = await this.workspaceRepository.findOne({ where: { id: workspaceId } });
+        if (workspace?.ownerId) {
+          userIds.push(workspace.ownerId);
+        }
+        const members = await this.memberRepository.find({ where: { workspaceId } });
+        members.forEach((m) => userIds.push(m.userId));
+      } catch (e: unknown) {
+        this.logger.warn(`Could not resolve workspace userIds for workspace ${workspaceId}: ${e}`);
+      }
+    }
+
+    userIds = Array.from(new Set(userIds));
+
+    const accounts = await this.socialAccountRepository.find({
       where: [
         {
-          userId,
+          userId: In(userIds),
           provider: In(['facebook', 'FACEBOOK']),
           connected: true,
-        },
-        {
-          userId,
-          provider: In(['facebook', 'FACEBOOK']),
           status: SocialAccountStatus.CONNECTED,
         },
       ],
       order: { connectedAt: 'DESC' },
     });
+
+    if (workspaceId && accounts.length > 0) {
+      for (const acc of accounts) {
+        await this.syncConnectedAccount(acc, workspaceId);
+      }
+    }
+
+    return accounts;
   }
 
   refreshToken(
@@ -251,13 +334,31 @@ export class FacebookProvider implements SocialProvider {
     workspaceId?: string,
   ) {
     try {
+      let targetWorkspaceId = workspaceId;
+      if (!targetWorkspaceId) {
+        const workspace = await this.workspaceRepository.findOne({ where: { ownerId: saved.userId } });
+        if (workspace) {
+          targetWorkspaceId = workspace.id;
+        } else {
+          const member = await this.memberRepository.findOne({ where: { userId: saved.userId } });
+          targetWorkspaceId = member?.workspaceId;
+        }
+      }
+
+      if (!targetWorkspaceId) {
+        this.logger.warn(
+          `Cannot sync Facebook account ${saved.id}: No workspace context found for user ${saved.userId}`,
+        );
+        return;
+      }
+
       let connAcc = await this.accountRepository.findOne({
         where: { id: saved.id },
       });
       if (!connAcc) {
         connAcc = this.accountRepository.create({
           id: saved.id,
-          workspaceId: workspaceId || 'default_workspace',
+          workspaceId: targetWorkspaceId,
           platformName: 'FACEBOOK',
           platformUserId: saved.pageId || saved.providerUserId,
           name: saved.pageName || saved.providerName || 'Facebook Page',
@@ -265,6 +366,7 @@ export class FacebookProvider implements SocialProvider {
         });
         await this.accountRepository.save(connAcc);
       } else {
+        connAcc.workspaceId = targetWorkspaceId;
         connAcc.name = saved.pageName || saved.providerName || connAcc.name;
         connAcc.status = AccountStatus.CONNECTED;
         await this.accountRepository.save(connAcc);

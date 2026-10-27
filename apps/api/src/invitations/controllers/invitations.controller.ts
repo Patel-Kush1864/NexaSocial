@@ -20,11 +20,20 @@ import { WorkspaceRoleGuard } from '../../workspaces/guards/workspace-role.guard
 import { RequireWorkspaceRole } from '../../workspaces/decorators/workspace-role.decorator';
 import { WorkspaceRole } from '../../workspace-members/entities/workspace-member.entity';
 import { SubscriptionGuard } from '../../subscriptions/guards/subscription.guard';
+import { Public } from '../../auth/decorators/public.decorator';
+import { SkipSubscriptionCheck } from '../../subscriptions/decorators/skip-subscription-check.decorator';
 
 @Controller('workspaces')
 @UseGuards(JwtAuthGuard)
 export class InvitationsController {
   constructor(private readonly invitationsService: InvitationsService) {}
+
+  @Public()
+  @SkipSubscriptionCheck()
+  @Get('invitations/:token/validate')
+  async validateInvitation(@Param('token') token: string) {
+    return this.invitationsService.validateToken(token);
+  }
 
   @Post(':id/invite')
   @UseGuards(WorkspaceRoleGuard, SubscriptionGuard)

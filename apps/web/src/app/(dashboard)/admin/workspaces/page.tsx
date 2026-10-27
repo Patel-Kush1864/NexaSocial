@@ -97,10 +97,9 @@ export default function AdminWorkspacesPage() {
             type: 'select',
             placeholder: 'All Plans',
             options: [
-              { label: 'Free', value: 'Free' },
-              { label: 'Pro', value: 'Pro' },
-              { label: 'Business', value: 'Business' },
-              { label: 'Enterprise', value: 'Enterprise' },
+              { label: 'Starter Plan', value: 'Starter Plan' },
+              { label: 'Pro Plan', value: 'Pro Plan' },
+              { label: 'Enterprise Plan', value: 'Enterprise Plan' },
             ],
           },
         ]}

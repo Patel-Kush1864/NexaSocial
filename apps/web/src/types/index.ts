@@ -30,6 +30,8 @@ export interface RegisterPayload {
   email: string;
   password: string;
   phoneNumber?: string;
+  invitationToken?: string;
+  workspaceName?: string;
 }
 
 // ── User ──────────────────────────────────
@@ -78,6 +80,8 @@ export interface Workspace {
   logo?: string;
   ownerId: string;
   isActive: boolean;
+  role?: WorkspaceRole;
+  permissions?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -90,7 +94,38 @@ export interface WorkspaceMember {
   workspaceId: string;
   role: WorkspaceRole;
   user: User;
-  joinedAt: string;
+  joinedAt?: string;
+  joined_at?: string;
+  createdAt?: string;
+  created_at?: string;
+}
+
+export interface InvitationValidationResponse {
+  valid: boolean;
+  email: string;
+  role: WorkspaceRole;
+  workspaceId: string;
+  workspaceName: string;
+  inviterName: string;
+  expiresAt: string;
+  status: string;
+}
+
+export interface WorkspaceInvitation {
+  id: string;
+  workspaceId: string;
+  email: string;
+  role: WorkspaceRole;
+  token?: string;
+  status: "PENDING" | "ACCEPTED" | "REJECTED" | "EXPIRED";
+  expiresAt?: string;
+  expires_at?: string;
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+  invitedById?: string;
+  invitedBy?: User;
 }
 
 export interface WorkspaceWithMembers extends Workspace {
@@ -185,18 +220,40 @@ export interface StreamPlatform {
   // Facebook 3-step workflow fields:
   facebookLiveVideoId?: string;
   facebookPageId?: string;
-  sourceStatus?: 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED';
+  sourceStatus?: 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'STARTING' | 'TRANSMITTING' | 'STOPPING' | 'ERROR';
   metadataStatus?: 'PENDING' | 'UPDATING' | 'COMPLETED' | 'FAILED';
-  publishStatus?: 'NOT_STARTED' | 'REQUESTED' | 'PUBLISHED' | 'FAILED';
+  publishStatus?: 'NOT_STARTED' | 'IDLE' | 'REQUESTED' | 'PUBLISHED' | 'FAILED' | 'MANUALLY_CONFIRMED' | string;
   sourceConnected?: boolean;
   metadataCompleted?: boolean;
   publishRequested?: boolean;
   facebookStatus?: string;
   facebookLastError?: string;
   facebookLastErrorCode?: string;
+  instagramLastError?: string;
+  instagramLastErrorCode?: string;
+  ingestMode?: string;
   sourceConnectedAt?: string;
   metadataCompletedAt?: string;
   publishedAt?: string;
+  isRelayActive?: boolean;
+  framesTransmitted?: boolean;
+  transmittedChunks?: number;
+  lastTransmissionTime?: string;
+  verificationStatus?: 'CAMERA_ACTIVE' | 'RELAY_STARTING' | 'TRANSMITTING' | 'WAITING_FOR_INSTAGRAM_CONFIRMATION' | 'STATUS_UNVERIFIED' | 'LIVE_VERIFIED' | 'ENDED' | 'FAILED' | string;
+  relayDiagnostics?: {
+    streamId?: string;
+    isProcessRunning?: boolean;
+    isRunning?: boolean;
+    pid?: number;
+    exitCode?: number | null;
+    framesTransmitted?: boolean;
+    transmittedChunks?: number;
+    lastTransmissionTime?: string;
+    lastRtmpError?: string;
+    sanitizedStderr?: string;
+    platformStatus?: string;
+  };
+  viewerAppNotice?: string;
 }
 
 export interface FacebookWorkflowStatusResponse {
@@ -226,13 +283,43 @@ export interface InstagramWorkflowStatusResponse {
   configured: boolean;
   platformId?: string;
   status?: string;
+  verificationStatus?: 'CAMERA_ACTIVE' | 'RELAY_STARTING' | 'TRANSMITTING' | 'WAITING_FOR_INSTAGRAM_CONFIRMATION' | 'STATUS_UNVERIFIED' | 'LIVE_VERIFIED' | 'ENDED' | 'FAILED' | string;
   streamUrl?: string;
   isRelayActive?: boolean;
+  framesTransmitted?: boolean;
+  transmittedChunks?: number;
+  lastTransmissionTime?: string;
   sourceConnected?: boolean;
   isConfirmedLive?: boolean;
+  isLive?: boolean;
+  verificationMethod?: string;
+  requiresManualConfirmation?: boolean;
+  limitationNotice?: string;
+  apiPublishSupported?: boolean;
   producerUrl?: string;
-  viewerUrl?: string;
+  viewerUrl?: string | null;
+  profileUrl?: string | null;
+  hasVerifiedViewerUrl?: boolean;
+  platformStatus?: string;
+  relayDiagnostics?: {
+    streamId: string;
+    pid?: number;
+    isProcessRunning: boolean;
+    exitCode: number | null;
+    exitSignal: string | null;
+    framesTransmitted: boolean;
+    transmittedChunks: number;
+    lastTransmissionTime: string | null;
+    lastRtmpError: string | null;
+    recentStderr: string[];
+  };
   publishedAt?: string;
+  lastError?: string;
+  lastErrorCode?: string;
+  ingestMode?: string;
+  isMockAccount?: boolean;
+  eligibilityStatus?: string;
+  instructions?: string[];
   message?: string;
   success?: boolean;
 }
@@ -387,6 +474,11 @@ export interface SubscriptionEntitlements {
   endDate: string | null;
   cancelAtPeriodEnd: boolean;
   features: PlanFeaturesMap | null;
+  workspaceId?: string;
+  workspaceName?: string;
+  workspaceOwnerId?: string;
+  isWorkspaceOwner?: boolean;
+  workspaceRole?: string;
   latestPayment: {
     id: string;
     status: string;
@@ -460,10 +552,81 @@ export interface ChartDataPoint {
 }
 
 export interface PlatformStat {
-  platform: SocialPlatform;
+  platform: string | SocialPlatform;
   followers: number;
   engagement: number;
   percentage: number;
+}
+
+export interface DashboardStreamItem {
+  id: string;
+  title: string;
+  status: string;
+  platforms: string[];
+  startedAt?: string | null;
+  scheduledAt?: string | null;
+}
+
+export interface DashboardOverviewResponse {
+  workspace: {
+    id: string;
+    name: string;
+    slug?: string;
+  };
+  subscription: string;
+  kpis: {
+    totalFollowers: {
+      value: number;
+      hasData: boolean;
+      change: string | null;
+      isPositive: boolean;
+      subtitle: string;
+    };
+    engagementRate: {
+      value: number | null;
+      hasData: boolean;
+      change: string | null;
+      isPositive: boolean;
+      subtitle: string;
+    };
+    connectedAccounts: {
+      value: number;
+      activeConnections: number;
+      subtitle: string;
+    };
+    activeStreams: {
+      value: number;
+      liveNow: number;
+      subtitle: string;
+    };
+  };
+  analytics: {
+    range: string;
+    followerGrowth: ChartDataPoint[];
+    hasAnalyticsData: boolean;
+  };
+  platformBreakdown: PlatformStat[];
+  liveStreams: {
+    active: DashboardStreamItem[];
+    scheduled: DashboardStreamItem[];
+    total: number;
+  };
+  recentActivity: Array<{
+    id: string;
+    action: string;
+    module: string;
+    description?: string;
+    createdAt: string;
+    metadata?: any;
+  }>;
+  dataAvailability: {
+    followersAvailable: boolean;
+    engagementAvailable: boolean;
+    analyticsAvailable: boolean;
+    connectedAccountsCount: number;
+    liveStreamsCount: number;
+    recentActivityCount: number;
+  };
 }
 
 export interface ActivityItem {

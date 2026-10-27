@@ -30,6 +30,10 @@ export class EmailLogQueryDto {
 
   @IsOptional()
   @IsString()
+  recipient?: string;
+
+  @IsOptional()
+  @IsString()
   dateFrom?: string;
 
   @IsOptional()

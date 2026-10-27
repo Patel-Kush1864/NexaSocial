@@ -6,7 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, IsNull } from 'typeorm';
 import { Workspace } from '../entities/workspace.entity';
 import {
   CreateWorkspaceDto,
@@ -24,6 +24,7 @@ import { UsersRepository } from '../../users/repositories/users.repository';
 import { LoggerServiceWrapper } from '../../logger/logger.service';
 import * as bcrypt from 'bcrypt';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { WORKSPACE_ROLE_PERMISSIONS } from '../constants/workspace-permissions.constants';
 
 @Injectable()
 export class WorkspacesService {
@@ -47,15 +48,39 @@ export class WorkspacesService {
     dto: CreateWorkspaceDto,
   ): Promise<Workspace> {
     // 1. Check workspace limit under active plan
+    const sub = await this.subscriptionsService.findActiveSubscription(ownerId);
+    if (!sub) {
+      throw new BadRequestException(
+        'Please select and activate a subscription plan before setting up your workspace.',
+      );
+    }
+
+    if (!dto.name || !dto.name.trim()) {
+      throw new BadRequestException('Workspace name is required.');
+    }
+
+    const cleanName = dto.name.trim();
+
+    // Idempotency: Check if owner already created an active workspace with this exact name
+    const existing = await this.workspaceRepository.findOne({
+      where: { ownerId, name: cleanName, deleted_at: IsNull() },
+    });
+    if (existing) {
+      return existing;
+    }
+
     const allowed = await this.usageLimitService.canCreateWorkspace(ownerId);
     if (!allowed) {
+      const limit = sub.plan?.features?.workspaces;
       throw new BadRequestException(
-        'Workspace creation limit reached. Please upgrade your plan.',
+        limit !== undefined
+          ? `You have reached the maximum workspace limit (${limit}) for your ${sub.plan?.name || 'current'} subscription plan. Please upgrade your plan to create more workspaces.`
+          : 'Your workspace has reached the limit for this feature. Please contact the workspace owner to manage the plan.',
       );
     }
 
     // 2. Generate slug
-    const rawSlug = dto.slug || dto.name;
+    const rawSlug = dto.slug || cleanName;
     const cleanSlug = rawSlug
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
@@ -66,6 +91,7 @@ export class WorkspacesService {
     // 3. Create & Save Workspace
     const workspace = this.workspaceRepository.create({
       ...dto,
+      name: cleanName,
       ownerId,
       slug,
       status: 'ACTIVE',
@@ -100,6 +126,56 @@ export class WorkspacesService {
     );
 
     return workspace;
+  }
+
+  async createDefaultWorkspace(
+    ownerId: string,
+    workspaceName?: string,
+  ): Promise<Workspace> {
+    const rawName = (workspaceName || 'My Workspace').trim();
+    const cleanSlug =
+      rawName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)+/g, '') || 'workspace';
+    const randSuffix = Math.random().toString(36).substring(2, 6);
+    const slug = `${cleanSlug}-${randSuffix}`;
+
+    const workspace = this.workspaceRepository.create({
+      name: rawName,
+      ownerId,
+      slug,
+      status: 'ACTIVE',
+    });
+    const savedWorkspace = await this.workspaceRepository.save(workspace);
+
+    const member = this.memberRepository.create({
+      workspaceId: savedWorkspace.id,
+      userId: ownerId,
+      role: WorkspaceRole.OWNER,
+    });
+    await this.memberRepository.save(member);
+
+    this.loggerService.log(
+      `Default workspace created: ${savedWorkspace.name} (ID: ${savedWorkspace.id}) for Owner ${ownerId}`,
+      'WorkspacesService',
+      'application',
+    );
+
+    await this.activityLogRepository.save(
+      this.activityLogRepository.create({
+        userId: ownerId,
+        action: 'WORKSPACE_CREATED',
+        metadata: {
+          workspaceId: savedWorkspace.id,
+          name: savedWorkspace.name,
+          slug: savedWorkspace.slug,
+          isDefault: true,
+        },
+      }),
+    );
+
+    return savedWorkspace;
   }
 
   async updateWorkspace(
@@ -164,14 +240,45 @@ export class WorkspacesService {
     );
   }
 
-  async findAllForUser(userId: string): Promise<Workspace[]> {
+  async findAllForUser(
+    userId: string,
+  ): Promise<(Workspace & { role: WorkspaceRole; permissions: string[] })[]> {
     const memberships = await this.memberRepository.find({
       where: { userId },
       relations: { workspace: true },
     });
     return memberships
-      .map((m) => m.workspace)
-      .filter((ws) => ws !== null && !ws.deleted_at);
+      .map((m) => {
+        if (!m.workspace || m.workspace.deleted_at) return null;
+        return {
+          ...m.workspace,
+          role: m.role,
+          permissions: WORKSPACE_ROLE_PERMISSIONS[m.role] || [],
+        };
+      })
+      .filter(
+        (ws): ws is Workspace & { role: WorkspaceRole; permissions: string[] } =>
+          ws !== null,
+      );
+  }
+
+  async getWorkspacePermissions(
+    workspaceId: string,
+    userId: string,
+  ): Promise<{ workspaceId: string; role: WorkspaceRole; permissions: string[] }> {
+    const member = await this.memberRepository.findOne({
+      where: { workspaceId, userId },
+    });
+    if (!member) {
+      throw new ForbiddenException(
+        'The requested workspace could not be found or you do not have access to it.',
+      );
+    }
+    return {
+      workspaceId,
+      role: member.role,
+      permissions: WORKSPACE_ROLE_PERMISSIONS[member.role] || [],
+    };
   }
 
   async findById(id: string): Promise<Workspace> {

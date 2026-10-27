@@ -45,13 +45,37 @@ export class FeatureAccessGuard implements CanActivate {
       return true; // No specific feature required
     }
 
-    const sub = await this.subscriptionsService.getCurrentSubscription(user.id);
+    const workspaceId =
+      (request.headers['x-workspace-id'] as string) ||
+      (request.query.workspaceId as string) ||
+      (request.params.workspaceId as string) ||
+      (request.body?.workspaceId as string) ||
+      (request.params.id as string);
+
+    const entitlements = await this.subscriptionsService.getEntitlements(
+      user.id,
+      workspaceId,
+    );
+
+    if (!entitlements.hasActiveSubscription) {
+      const isOwner = entitlements.isWorkspaceOwner !== false;
+      throw new ForbiddenException({
+        statusCode: 403,
+        error: 'Forbidden',
+        message: isOwner
+          ? 'Choose a subscription plan to unlock NexaSocial features.'
+          : 'This workspace does not currently have an active subscription. Please contact the workspace owner.',
+        code: 'SUBSCRIPTION_REQUIRED',
+        status: entitlements.status,
+        isWorkspaceOwner: isOwner,
+      });
+    }
 
     // Verify if the active plan supports the requested feature
-    const isAllowed = sub.plan.features[requiredFeature];
+    const isAllowed = entitlements.features?.[requiredFeature];
     if (!isAllowed) {
       throw new ForbiddenException(
-        `Feature access restricted ("${requiredFeature}"). Please upgrade your subscription plan to gain access.`,
+        `Feature access restricted ("${String(requiredFeature)}"). Please upgrade your subscription plan to gain access.`,
       );
     }
 

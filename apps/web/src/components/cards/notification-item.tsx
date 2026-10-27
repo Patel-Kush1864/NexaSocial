@@ -3,8 +3,19 @@
 import type { Notification } from '@/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Check, Trash2, Info, AlertTriangle, CheckCircle2 } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import {
+  Check,
+  Trash2,
+  Info,
+  AlertTriangle,
+  CheckCircle2,
+  Megaphone,
+  ShieldAlert,
+  UserPlus,
+  CreditCard,
+  Radio,
+} from 'lucide-react';
+import { formatRelativeTime } from '@/lib/utils';
 
 interface NotificationItemProps {
   notification: Notification;
@@ -16,9 +27,29 @@ export function NotificationItem({ notification, onMarkRead, onDelete }: Notific
   const getIcon = (type: string) => {
     switch (type) {
       case 'SUCCESS':
+      case 'PAYMENT_SUCCESS':
         return <CheckCircle2 className="w-5 h-5 text-emerald-500" />;
+      case 'STREAM_STARTED':
+      case 'STREAM_ENDED':
+        return <Radio className="w-5 h-5 text-indigo-400" />;
       case 'WARNING':
+      case 'STREAM_FAILED':
+      case 'PAYMENT_FAILURE':
+      case 'OAUTH_TOKEN_EXPIRED':
         return <AlertTriangle className="w-5 h-5 text-amber-500" />;
+      case 'ANNOUNCEMENT':
+      case 'UPDATE':
+      case 'SYSTEM':
+      case 'MAINTENANCE':
+        return <Megaphone className="w-5 h-5 text-violet-400" />;
+      case 'SECURITY':
+        return <ShieldAlert className="w-5 h-5 text-rose-500" />;
+      case 'WORKSPACE_INVITATION':
+      case 'MEMBER_JOINED':
+      case 'MEMBER_REMOVED':
+        return <UserPlus className="w-5 h-5 text-cyan-400" />;
+      case 'SUBSCRIPTION_RENEWAL':
+        return <CreditCard className="w-5 h-5 text-violet-400" />;
       default:
         return <Info className="w-5 h-5 text-violet-400" />;
     }
@@ -41,7 +72,7 @@ export function NotificationItem({ notification, onMarkRead, onDelete }: Notific
               {notification.message}
             </p>
             <p className="text-[10px] text-muted-foreground/70 pt-1">
-              {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
+              {formatRelativeTime(notification.createdAt || (notification as any).created_at, { addSuffix: true })}
             </p>
           </div>
         </div>

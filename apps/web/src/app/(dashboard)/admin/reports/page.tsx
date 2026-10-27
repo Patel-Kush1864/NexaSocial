@@ -11,13 +11,13 @@ import { PaymentsReport } from '@/components/admin/reports/views/payments-report
 import { LiveStreamsReport } from '@/components/admin/reports/views/live-streams-report';
 import { SocialPlatformsReport } from '@/components/admin/reports/views/social-platforms-report';
 import { DateRange } from '@/components/admin/reports/report-date-range';
-import { subDays } from 'date-fns';
+import { subDays, startOfDay, endOfDay } from 'date-fns';
 
 export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState('users');
   const [date, setDate] = useState<DateRange | undefined>({
-    from: subDays(new Date(), 30),
-    to: new Date(),
+    from: startOfDay(subDays(new Date(), 30)),
+    to: endOfDay(new Date()),
   });
 
   return (

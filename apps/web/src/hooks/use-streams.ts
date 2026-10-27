@@ -16,12 +16,16 @@ export function useStreams(workspaceId?: string) {
     queryKey: queryKeys.streams.all(workspaceId || ''),
     queryFn: () => livestreamService.getHistory(workspaceId!),
     enabled: !!workspaceId,
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
   });
 
   const dashboardStatsQuery = useQuery({
     queryKey: queryKeys.streams.dashboard(workspaceId || ''),
     queryFn: () => livestreamService.getDashboardStats(workspaceId!),
     enabled: !!workspaceId,
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
   });
 
   const createMutation = useMutation({
@@ -149,6 +153,11 @@ export function useStreams(workspaceId?: string) {
     streams: streamsQuery.data || [],
     dashboardStats: dashboardStatsQuery.data,
     isLoading: streamsQuery.isLoading,
+    isRefetching: streamsQuery.isRefetching || dashboardStatsQuery.isRefetching,
+    isError: streamsQuery.isError || dashboardStatsQuery.isError,
+    refetch: async () => {
+      await Promise.all([streamsQuery.refetch(), dashboardStatsQuery.refetch()]);
+    },
     createStream: createMutation.mutateAsync,
     updateStream: updateMutation.mutateAsync,
     startStream: startMutation.mutateAsync,
@@ -169,7 +178,11 @@ export function useStreamDetails(id?: string, workspaceId?: string) {
       const hasPendingPlatforms = data?.platforms?.some(
         (p: any) =>
           p.status === 'PENDING' ||
+          p.status === 'CONFIGURED' ||
+          p.status === 'STARTING' ||
+          p.status === 'TRANSMITTING' ||
           p.status === 'WAITING_FOR_PLATFORM_PREVIEW' ||
+          p.status === 'WAITING_FOR_INSTAGRAM_CONFIRMATION' ||
           p.status === 'CONNECTING',
       );
       if (

@@ -1,6 +1,7 @@
 'use client';
 
-import { format, formatDistanceToNow } from 'date-fns';
+import { format } from 'date-fns';
+import { formatRelativeTime } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -148,9 +149,7 @@ export function ConnectedAccountDetailsDrawer({ account, open, onOpenChange }: D
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Last Sync</span>
                 <span className="font-medium">
-                  {account.lastSync 
-                    ? formatDistanceToNow(new Date(account.lastSync), { addSuffix: true }) 
-                    : 'Not available'}
+                  {formatRelativeTime(account.lastSync, { addSuffix: true }, 'Not available')}
                 </span>
               </div>
             </div>
@@ -175,7 +174,7 @@ export function ConnectedAccountDetailsDrawer({ account, open, onOpenChange }: D
                     <div className="flex justify-between items-start mb-2">
                       <span className="font-semibold text-destructive">Code: {err.statusCode}</span>
                       <span className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(err.occurredAt), { addSuffix: true })}
+                        {formatRelativeTime(err.occurredAt, { addSuffix: true })}
                       </span>
                     </div>
                     <p className="text-muted-foreground text-xs font-mono break-all bg-background/50 p-2 rounded">

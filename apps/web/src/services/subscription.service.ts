@@ -7,9 +7,13 @@ import apiClient from '@/lib/api-client';
 import type { Subscription, SubscriptionEntitlements } from '@/types';
 
 export const subscriptionService = {
-  async getEntitlements(): Promise<SubscriptionEntitlements> {
+  async getEntitlements(workspaceId?: string): Promise<SubscriptionEntitlements> {
     const { data } = await apiClient.get<SubscriptionEntitlements>(
       '/subscriptions/entitlements',
+      {
+        params: workspaceId ? { workspaceId } : undefined,
+        headers: workspaceId ? { 'x-workspace-id': workspaceId } : undefined,
+      },
     );
     return data;
   },
@@ -49,9 +53,13 @@ export const subscriptionService = {
     return data;
   },
 
-  async getCurrent(): Promise<Subscription> {
+  async getCurrent(workspaceId?: string): Promise<Subscription> {
     const { data } = await apiClient.get<Subscription>(
       '/subscriptions/current',
+      {
+        params: workspaceId ? { workspaceId } : undefined,
+        headers: workspaceId ? { 'x-workspace-id': workspaceId } : undefined,
+      },
     );
     return data;
   },

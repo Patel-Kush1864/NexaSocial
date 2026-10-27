@@ -3,7 +3,13 @@
 // ═══════════════════════════════════════════
 
 import apiClient from '@/lib/api-client';
-import type { Workspace, WorkspaceMember, SuccessResponse } from '@/types';
+import type {
+  Workspace,
+  WorkspaceMember,
+  WorkspaceInvitation,
+  SuccessResponse,
+  InvitationValidationResponse,
+} from '@/types';
 
 export const workspaceService = {
   // ── CRUD ────────────────────────────────
@@ -118,8 +124,10 @@ export const workspaceService = {
     return data;
   },
 
-  async getPendingInvitations(workspaceId: string): Promise<any[]> {
-    const { data } = await apiClient.get<any[]>(
+  async getPendingInvitations(
+    workspaceId: string,
+  ): Promise<WorkspaceInvitation[]> {
+    const { data } = await apiClient.get<WorkspaceInvitation[]>(
       `/workspaces/${workspaceId}/invitations`,
     );
     return data;
@@ -141,6 +149,15 @@ export const workspaceService = {
   ): Promise<SuccessResponse> {
     const { data } = await apiClient.post<SuccessResponse>(
       `/workspaces/${workspaceId}/invitations/${invitationId}/cancel`,
+    );
+    return data;
+  },
+
+  async validateInvitation(
+    token: string,
+  ): Promise<InvitationValidationResponse> {
+    const { data } = await apiClient.get<InvitationValidationResponse>(
+      `/workspaces/invitations/${token}/validate`,
     );
     return data;
   },

@@ -5,8 +5,14 @@ import { ConnectedAccount } from '../../social/entities/connected-account.entity
 
 export enum StreamPlatformStatus {
   PENDING = 'PENDING',
+  CONFIGURED = 'CONFIGURED',
+  STARTING = 'STARTING',
+  TRANSMITTING = 'TRANSMITTING',
   WAITING_FOR_PLATFORM_PREVIEW = 'WAITING_FOR_PLATFORM_PREVIEW',
+  WAITING_FOR_INSTAGRAM_CONFIRMATION = 'WAITING_FOR_INSTAGRAM_CONFIRMATION',
+  STATUS_UNVERIFIED = 'STATUS_UNVERIFIED',
   LIVE = 'LIVE',
+  STOPPING = 'STOPPING',
   ENDED = 'ENDED',
   FAILED = 'FAILED',
 }
@@ -19,10 +25,10 @@ export class StreamPlatform extends BaseEntity {
   @Column({ name: 'connected_account_id' })
   connectedAccountId: string;
 
-  @Column({ name: 'stream_key', nullable: true })
+  @Column({ name: 'stream_key', type: 'text', nullable: true })
   streamKey?: string;
 
-  @Column({ name: 'stream_url', nullable: true })
+  @Column({ name: 'stream_url', type: 'text', nullable: true })
   streamUrl?: string;
 
   @Column({ name: 'platform_stream_id', nullable: true })
@@ -75,6 +81,20 @@ export class StreamPlatform extends BaseEntity {
 
   @Column({ name: 'facebook_last_error_code', nullable: true })
   facebookLastErrorCode?: string;
+
+  @Column({ name: 'instagram_last_error', type: 'text', nullable: true })
+  instagramLastError?: string;
+
+  @Column({ name: 'instagram_last_error_code', nullable: true })
+  instagramLastErrorCode?: string;
+
+  @Column({
+    name: 'ingest_mode',
+    type: 'varchar',
+    length: 50,
+    default: 'LIVE_PRODUCER',
+  })
+  ingestMode: string;
 
   @Column({
     type: 'varchar',

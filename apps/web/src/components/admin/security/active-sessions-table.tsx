@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { format } from 'date-fns';
+import { formatDateSafe } from '@/lib/utils';
 import {
   Table,
   TableBody,
@@ -84,7 +84,7 @@ export function ActiveSessionsTable() {
               data?.data.map((session) => (
                 <TableRow key={session.id}>
                   <TableCell className="whitespace-nowrap text-muted-foreground">
-                    {format(new Date(session.createdAt), 'dd MMM yyyy')}
+                    {formatDateSafe(session.createdAt || (session as any).created_at, 'dd MMM yyyy')}
                   </TableCell>
                   <TableCell>
                     <div>
@@ -102,7 +102,7 @@ export function ActiveSessionsTable() {
                     {session.device || 'Unknown'} <span className="text-muted-foreground text-xs">({session.userAgent || '-'})</span>
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-muted-foreground text-xs">
-                    {format(new Date(session.expiresAt), 'dd MMM yyyy, hh:mm a')}
+                    {formatDateSafe(session.expiresAt || (session as any).expires_at, 'dd MMM yyyy, hh:mm a')}
                   </TableCell>
                 </TableRow>
               ))

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSidebarStore } from '@/stores/sidebar-store';
 import { useAuthStore } from '@/stores/auth-store';
+import { useWorkspaceStore } from '@/stores/workspace-store';
 import { getVisibleNavigation } from '@/config/navigation';
 import { WorkspaceSwitcher } from './workspace-switcher';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
@@ -61,12 +62,16 @@ import { toast } from 'sonner';
 export function MobileSidebar() {
   const pathname = usePathname();
   const { isMobileOpen, setMobileOpen } = useSidebarStore();
-  const { scope } = useAuthStore();
-  const { hasActiveSubscription } = useSubscriptionEntitlements();
+  const { scope, hasPermission } = useAuthStore();
+  const { currentWorkspace } = useWorkspaceStore();
+  const { hasActiveSubscription, isWorkspaceOwner } = useSubscriptionEntitlements();
+
+  const isPendingOnboarding = !hasActiveSubscription && !currentWorkspace;
 
   const isRouteLocked = (href: string) => {
     if (scope === 'PLATFORM') return false;
     if (hasActiveSubscription) return false;
+    if (isPendingOnboarding) return false; // Allow navigation to display onboarding guard
     const allowed = ['/dashboard', '/billing', '/settings', '/notifications'];
     return !allowed.some((allowedPath) => href === allowedPath || href.startsWith(`${allowedPath}/`));
   };
@@ -87,7 +92,7 @@ export function MobileSidebar() {
           <WorkspaceSwitcher />
 
           <nav className="space-y-4 overflow-y-auto">
-            {getVisibleNavigation({ scope, hasPermission: useAuthStore.getState().hasPermission }).map((section) => (
+            {getVisibleNavigation({ scope, hasPermission }).map((section) => (
               <div key={section.id} className="space-y-1">
                 {section.label && (
                   <h4 className="px-3 text-xs font-semibold text-muted-foreground/70 uppercase tracking-wider mb-2">
@@ -109,7 +114,9 @@ export function MobileSidebar() {
                         if (locked) {
                           e.preventDefault();
                           toast.info('Feature Locked', {
-                            description: 'Choose a subscription plan to unlock NexaSocial features.',
+                            description: isWorkspaceOwner
+                              ? 'Choose a subscription plan to unlock NexaSocial features.'
+                              : 'This workspace does not currently have an active subscription. Please contact the workspace owner.',
                           });
                         }
                       }}

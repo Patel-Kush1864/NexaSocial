@@ -11,6 +11,8 @@ import { UnauthorizedException, BadRequestException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { MailService } from '../../../src/mail/mail.service';
+import { WorkspacesService } from '../../../src/workspaces/services/workspaces.service';
+import { InvitationsService } from '../../../src/invitations/services/invitations.service';
 
 describe('AuthService (Unit)', () => {
   let authService: AuthService;
@@ -62,6 +64,19 @@ describe('AuthService (Unit)', () => {
         { provide: LoggerServiceWrapper, useValue: loggerService },
         { provide: EventEmitter2, useValue: mockEventEmitter },
         { provide: MailService, useValue: mockMailService },
+        {
+          provide: WorkspacesService,
+          useValue: {
+            createDefaultWorkspace: jest.fn().mockResolvedValue({ id: 'ws_default_1', name: "Default's Workspace" }),
+          },
+        },
+        {
+          provide: InvitationsService,
+          useValue: {
+            getInvitationByToken: jest.fn(),
+            accept: jest.fn(),
+          },
+        },
       ],
     }).compile();
 

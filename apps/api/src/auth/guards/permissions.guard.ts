@@ -22,22 +22,30 @@ export class PermissionsGuard implements CanActivate {
       return true;
     }
 
-    const { user } = context.switchToHttp().getRequest<{ user: CurrentUser }>();
+    const request = context.switchToHttp().getRequest();
+    const user = request.user as CurrentUser & { workspacePermissions?: string[] };
 
     if (!user) {
       return false;
     }
 
-    // The user's role and permissions are stored in the payload.
-    // SUPER_ADMIN has explicitly been granted all permissions in the DB.
+    if (user.role === 'SUPER_ADMIN') {
+      return true;
+    }
+
+    const effectivePermissions = [
+      ...(user.permissions || []),
+      ...(user.workspacePermissions || []),
+      ...(request.workspacePermissions || []),
+    ];
 
     const hasPermission = requiredPermissions.some((permission) =>
-      user.permissions?.includes(permission),
+      effectivePermissions.includes(permission),
     );
 
     if (!hasPermission) {
       throw new ForbiddenException(
-        'You do not have the required permissions for this action.',
+        "You don't have permission to perform this action.",
       );
     }
 

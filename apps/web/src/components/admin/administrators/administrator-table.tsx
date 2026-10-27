@@ -1,6 +1,6 @@
 'use client';
 
-import { format } from 'date-fns';
+import { formatDateSafe } from '@/lib/utils';
 import {
   Table,
   TableBody,
@@ -118,9 +118,7 @@ export function AdministratorTable({ data, isLoading, isError, onSelectAdmin, on
                     {getStatusBadge(admin.status)}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {admin.createdAt && !isNaN(new Date(admin.createdAt).getTime())
-                      ? format(new Date(admin.createdAt), 'dd MMM yyyy')
-                      : '-'}
+                    {formatDateSafe(admin.createdAt || admin.created_at, 'dd MMM yyyy')}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button variant="ghost" size="icon" onClick={() => onSelectAdmin(admin.id)}>

@@ -12,10 +12,19 @@ export const notificationService = {
     limit?: number;
     offset?: number;
   }): Promise<Notification[]> {
-    const { data } = await apiClient.get<Notification[]>('/notifications', {
+    const { data } = await apiClient.get<any>('/notifications', {
       params,
     });
-    return data;
+    const items = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.data)
+      ? data.data
+      : [];
+
+    return items.map((item: any) => ({
+      ...item,
+      createdAt: item.createdAt || item.created_at || new Date().toISOString(),
+    }));
   },
 
   async getUnreadCount(workspaceId?: string): Promise<{ unreadCount: number }> {

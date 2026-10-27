@@ -32,7 +32,7 @@ export class ProfileService {
     private readonly subscriptionsService: SubscriptionsService,
     private readonly dataSource: DataSource,
     private readonly mailService: MailService,
-  ) {}
+  ) { }
 
   async getProfile(userId: string) {
     const user = await this.usersRepository.findById(userId);
@@ -40,9 +40,9 @@ export class ProfileService {
       throw new NotFoundException('User not found');
     }
 
-    // Dynamic checks with developer fallback
-    let workspacesCount = 3;
-    let connectedAccountsCount = 7;
+    // Dynamic checks
+    let workspacesCount = 0;
+    let connectedAccountsCount = 0;
     try {
       const queryRunner = this.dataSource.createQueryRunner();
       const hasWorkspacesTable = await queryRunner.hasTable('workspaces');
@@ -51,14 +51,16 @@ export class ProfileService {
 
       if (hasWorkspacesTable) {
         const result = await this.dataSource.query(
-          `SELECT COUNT(*) as count FROM \`workspaces\` WHERE \`owner_id\` = ? AND deleted_at IS NULL`,
+          `SELECT COUNT(DISTINCT workspace_id) as count FROM \`workspace_members\` WHERE \`user_id\` = ? AND deleted_at IS NULL`,
           [userId],
         );
         workspacesCount = parseInt(result[0]?.count || '0', 10);
       }
       if (hasAccountsTable) {
         const result = await this.dataSource.query(
-          `SELECT COUNT(*) as count FROM \`social_accounts\` WHERE \`user_id\` = ? AND deleted_at IS NULL`,
+          `SELECT COUNT(*) as count FROM \`social_accounts\` sa
+           JOIN \`workspace_members\` wm ON sa.workspace_id = wm.workspace_id
+           WHERE wm.user_id = ? AND sa.deleted_at IS NULL AND wm.deleted_at IS NULL`,
           [userId],
         );
         connectedAccountsCount = parseInt(result[0]?.count || '0', 10);
@@ -69,10 +71,16 @@ export class ProfileService {
 
     let subscriptionName = 'None';
     try {
-      const sub =
-        await this.subscriptionsService.findActiveSubscription(userId);
-      if (sub?.plan?.name) {
-        subscriptionName = sub.plan.name;
+      const entitlements =
+        await this.subscriptionsService.getEntitlements(userId);
+      if (entitlements?.hasActiveSubscription && entitlements?.planName) {
+        subscriptionName = entitlements.planName;
+      } else {
+        const sub =
+          await this.subscriptionsService.findActiveSubscription(userId);
+        if (sub?.plan?.name) {
+          subscriptionName = sub.plan.name;
+        }
       }
     } catch {
       subscriptionName = 'None';
@@ -103,7 +111,7 @@ export class ProfileService {
     };
   }
 
-  async updateProfile(userId: string, dto: UpdateProfileDto): Promise<User> {
+  async updateProfile(userId: string, dto: UpdateProfileDto): Promise<any> {
     const user = await this.usersRepository.findById(userId);
     if (!user) {
       throw new NotFoundException('User not found');
@@ -155,7 +163,7 @@ export class ProfileService {
       'ProfileService',
       'security',
     );
-    return updated;
+    return this.getProfile(userId);
   }
 
   async changePassword(
@@ -178,7 +186,8 @@ export class ProfileService {
 
     await this.sessionRepository.delete({ userId, id: Not(currentSessionId) });
 
-    const userName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
+    const userName =
+      `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
     await this.mailService.sendPasswordChangedNotification({
       id: user.id,
       name: userName,
@@ -210,7 +219,8 @@ export class ProfileService {
       verificationToken,
     });
 
-    const userName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
+    const userName =
+      `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
     // Send verification to the new email address
     await this.mailService.sendEmailVerification({
       id: user.id,
@@ -238,8 +248,8 @@ export class ProfileService {
     return updated;
   }
 
-  async uploadAvatar(userId: string, avatarUrl: string): Promise<User> {
-    const updated = await this.usersRepository.update(userId, {
+  async uploadAvatar(userId: string, avatarUrl: string): Promise<any> {
+    await this.usersRepository.update(userId, {
       avatar: avatarUrl,
     });
     this.logger.log(
@@ -247,11 +257,11 @@ export class ProfileService {
       'ProfileService',
       'security',
     );
-    return updated;
+    return this.getProfile(userId);
   }
 
-  async deleteAvatar(userId: string): Promise<User> {
-    const updated = await this.usersRepository.update(userId, {
+  async deleteAvatar(userId: string): Promise<any> {
+    await this.usersRepository.update(userId, {
       avatar: undefined,
     });
     this.logger.log(
@@ -259,7 +269,7 @@ export class ProfileService {
       'ProfileService',
       'security',
     );
-    return updated;
+    return this.getProfile(userId);
   }
 
   async deleteAccount(

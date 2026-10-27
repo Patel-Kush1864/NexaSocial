@@ -1,20 +1,45 @@
 'use client';
 
+import { useState } from 'react';
 import type { SocialAccount } from '@/types';
 import { PLATFORM_CONFIG } from '@/lib/constants';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime } from '@/lib/utils';
 
 interface SocialAccountCardProps {
   account: SocialAccount;
-  onSync: (id: string) => void;
-  onDisconnect: (id: string) => void;
+  onSync?: (id: string) => void | Promise<any>;
+  onDisconnect?: (id: string) => void | Promise<any>;
+  isPlatformDisabled?: boolean;
 }
 
-export function SocialAccountCard({ account, onSync, onDisconnect }: SocialAccountCardProps) {
+export function SocialAccountCard({ account, onSync, onDisconnect, isPlatformDisabled = false }: SocialAccountCardProps) {
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSync = async () => {
+    if (!onSync || isSyncing || isPlatformDisabled) return;
+    try {
+      setIsSyncing(true);
+      await onSync(account.id);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!onDisconnect || isDisconnecting) return;
+    try {
+      setIsDisconnecting(true);
+      await onDisconnect(account.id);
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
   const config = PLATFORM_CONFIG[account.platform] || {
     name: account.platform,
     icon: '🌐',
@@ -35,7 +60,12 @@ export function SocialAccountCard({ account, onSync, onDisconnect }: SocialAccou
             </div>
           </div>
 
-          {account.isActive ? (
+          {isPlatformDisabled ? (
+            <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/20 text-[10px]">
+              <AlertCircle className="w-3 h-3 mr-1" />
+              Platform Disabled
+            </Badge>
+          ) : account.isActive ? (
             <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 text-[10px]">
               <CheckCircle2 className="w-3 h-3 mr-1" />
               Connected
@@ -57,32 +87,48 @@ export function SocialAccountCard({ account, onSync, onDisconnect }: SocialAccou
           </div>
           <div className="text-[10px]">
             Synced{' '}
-            {account.lastSyncedAt
-              ? formatDistanceToNow(new Date(account.lastSyncedAt), { addSuffix: true })
-              : 'Recently'}
+            {formatRelativeTime(
+              account.lastSyncedAt || (account as any).lastSync,
+              { addSuffix: true },
+              'Recently',
+            )}
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 pt-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onSync(account.id)}
-            className="h-8 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <RefreshCw className="w-3.5 h-3.5 mr-1" />
-            Sync
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onDisconnect(account.id)}
-            className="h-8 text-xs text-muted-foreground hover:text-destructive"
-          >
-            <Trash2 className="w-3.5 h-3.5 mr-1" />
-            Disconnect
-          </Button>
-        </div>
+        {(onSync || onDisconnect) && (
+          <div className="flex items-center justify-end gap-2 pt-1 border-t border-border/20">
+            {onSync && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={isSyncing || isDisconnecting}
+                onClick={handleSync}
+                className="h-8 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <RefreshCw
+                  className={`w-3.5 h-3.5 mr-1 ${isSyncing ? 'animate-spin' : ''}`}
+                />
+                {isSyncing ? 'Syncing...' : 'Sync'}
+              </Button>
+            )}
+            {onDisconnect && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={isDisconnecting || isSyncing}
+                onClick={handleDisconnect}
+                className="h-8 text-xs text-muted-foreground hover:text-destructive"
+              >
+                {isDisconnecting ? (
+                  <RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5 mr-1" />
+                )}
+                {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+              </Button>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

@@ -7,6 +7,7 @@ import {
   Param,
   Body,
   Query,
+  Headers,
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
@@ -25,7 +26,10 @@ import {
   FacebookSourceDto,
   FacebookMetadataDto,
   FacebookPublishDto,
+  InstagramSourceDto,
+  InstagramConfirmLiveDto,
 } from '../dto/livestream.dto';
+import { StreamStatus } from '../entities/livestream.entity';
 
 @Controller('livestreams')
 @UseGuards(JwtAuthGuard, WorkspaceRoleGuard, SubscriptionGuard)
@@ -153,8 +157,13 @@ export class LiveStreamsController {
     WorkspaceRole.CREATOR,
     WorkspaceRole.VIEWER,
   )
-  async getHistory(@Query('workspaceId') workspaceId: string) {
-    return this.streamsService.getHistory(workspaceId);
+  async getHistory(
+    @Query('workspaceId') workspaceId: string,
+    @Headers('x-workspace-id') headerWorkspaceId?: string,
+    @Query('status') status?: StreamStatus,
+  ) {
+    const wsId = workspaceId || headerWorkspaceId || '';
+    return this.streamsService.getHistory(wsId, status);
   }
 
   @Get('dashboard')
@@ -164,8 +173,12 @@ export class LiveStreamsController {
     WorkspaceRole.CREATOR,
     WorkspaceRole.VIEWER,
   )
-  async getDashboard(@Query('workspaceId') workspaceId: string) {
-    return this.streamsService.getDashboardStats(workspaceId);
+  async getDashboard(
+    @Query('workspaceId') workspaceId: string,
+    @Headers('x-workspace-id') headerWorkspaceId?: string,
+  ) {
+    const wsId = workspaceId || headerWorkspaceId || '';
+    return this.streamsService.getDashboardStats(wsId);
   }
 
   @Get(':id')
@@ -293,6 +306,69 @@ export class LiveStreamsController {
     );
   }
 
+  @Post(':id/instagram/source')
+  @RequireWorkspaceRole(
+    WorkspaceRole.OWNER,
+    WorkspaceRole.MANAGER,
+    WorkspaceRole.CREATOR,
+  )
+  async configureInstagramSource(
+    @CurrentUser() user: CurrentUserType,
+    @Param('id') id: string,
+    @Query('workspaceId') workspaceId: string,
+    @Body() dto: InstagramSourceDto,
+  ) {
+    if (!user) throw new BadRequestException('User context missing');
+    return this.streamsService.configureInstagramSource(
+      id,
+      workspaceId,
+      user.id,
+      dto,
+    );
+  }
+
+  @Post(':id/instagram/start')
+  @RequireWorkspaceRole(
+    WorkspaceRole.OWNER,
+    WorkspaceRole.MANAGER,
+    WorkspaceRole.CREATOR,
+  )
+  async startInstagramOutput(
+    @CurrentUser() user: CurrentUserType,
+    @Param('id') id: string,
+    @Query('workspaceId') workspaceId: string,
+    @Body() body?: { platformId?: string },
+  ) {
+    if (!user) throw new BadRequestException('User context missing');
+    return this.streamsService.startInstagramOutput(
+      id,
+      workspaceId,
+      user.id,
+      body?.platformId,
+    );
+  }
+
+  @Post(':id/instagram/stop')
+  @RequireWorkspaceRole(
+    WorkspaceRole.OWNER,
+    WorkspaceRole.MANAGER,
+    WorkspaceRole.CREATOR,
+  )
+  async stopInstagramOutput(
+    @CurrentUser() user: CurrentUserType,
+    @Param('id') id: string,
+    @Query('workspaceId') workspaceId: string,
+    @Body() body?: { platformId?: string },
+  ) {
+    if (!user) throw new BadRequestException('User context missing');
+    return this.streamsService.stopInstagramOutput(
+      id,
+      workspaceId,
+      user.id,
+      body?.platformId,
+    );
+  }
+
   @Post(':id/instagram/confirm-live')
   @RequireWorkspaceRole(
     WorkspaceRole.OWNER,
@@ -303,7 +379,7 @@ export class LiveStreamsController {
     @CurrentUser() user: CurrentUserType,
     @Param('id') id: string,
     @Query('workspaceId') workspaceId: string,
-    @Body() body?: { platformId?: string },
+    @Body() body?: InstagramConfirmLiveDto,
   ) {
     if (!user) throw new BadRequestException('User context missing');
     return this.streamsService.confirmInstagramLive(
@@ -311,6 +387,7 @@ export class LiveStreamsController {
       workspaceId,
       user.id,
       body?.platformId,
+      body?.manualConfirmed,
     );
   }
 

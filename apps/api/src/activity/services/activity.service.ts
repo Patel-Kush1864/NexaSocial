@@ -85,8 +85,8 @@ export class ActivityService {
   async getPlatformActivity(
     queryDto: QueryActivityDto,
   ): Promise<{ data: any[]; total: number }> {
+    const category = queryDto.category || queryDto.module;
     const {
-      module: category,
       limit = 20,
       offset = 0,
       search,

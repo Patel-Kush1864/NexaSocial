@@ -44,6 +44,10 @@ export class QueryActivityDto {
 
   @IsString()
   @IsOptional()
+  category?: string;
+
+  @IsString()
+  @IsOptional()
   search?: string;
 
   @IsString()

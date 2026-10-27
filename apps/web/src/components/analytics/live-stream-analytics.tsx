@@ -6,7 +6,7 @@ import { DashboardKpiCard } from '@/components/dashboard/dashboard-kpi-card';
 import { Button } from '@/components/ui/button';
 import { AlertCircle, RefreshCw, Video, PlayCircle, CheckCircle2, XCircle, Clock, Users, Camera, Briefcase, MessageSquare, Gamepad2 } from 'lucide-react';
 import { SocialPlatform } from '@/types/analytics';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime } from '@/lib/utils';
 import { EmptyState } from '@/components/shared/empty-state';
 import { ErrorState } from '@/components/shared/error-state';
 import { formatNumber } from '@/lib/utils';
@@ -103,7 +103,7 @@ export function LiveStreamAnalytics() {
                     
                     <div className="mt-4 pt-4 border-t text-xs text-muted-foreground font-medium flex items-center">
                       <Clock className="w-3.5 h-3.5 mr-1.5" />
-                      Started {stream.startedAt ? formatDistanceToNow(new Date(stream.startedAt)) : 'recently'} ago
+                      Started {formatRelativeTime(stream.startedAt, {}, 'recently')} ago
                     </div>
                   </div>
                 ))}

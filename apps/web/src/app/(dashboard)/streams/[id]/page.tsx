@@ -4,6 +4,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useWorkspaceStore } from "@/stores/workspace-store";
+import { useAuthStore } from "@/stores/auth-store";
 import { useStreamDetails, useStreams } from "@/hooks/use-streams";
 import { PageHeader } from "@/components/shared/page-header";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ import {
   Sparkles,
   Eye,
   EyeOff,
+  Info,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { toast } from "sonner";
@@ -52,6 +54,22 @@ import { useSocketContext } from "@/providers/socket-provider";
 import { StreamPlatform } from "@/types";
 import { PLATFORM_CONFIG } from "@/lib/constants";
 
+function getErrorMessage(err: unknown, fallback: string = "An unexpected error occurred"): string {
+  if (!err) return fallback;
+  const anyErr = err as any;
+  if (anyErr?.response?.data?.message) {
+    const msg = anyErr.response.data.message;
+    return Array.isArray(msg) ? msg.join(', ') : String(msg);
+  }
+  if (anyErr?.response?.data?.error) {
+    return String(anyErr.response.data.error);
+  }
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  return String(err) || fallback;
+}
+
 export default function StreamControlStudioPage() {
   const params = useParams();
   const router = useRouter();
@@ -60,6 +78,11 @@ export default function StreamControlStudioPage() {
   const activeSocket = streamSocket || socket;
 
   const { currentWorkspace } = useWorkspaceStore();
+  const { hasPermission } = useAuthStore();
+  const canStartStream = hasPermission('livestreams.start');
+  const canStopStream = hasPermission('livestreams.stop');
+  const canUpdateStream = hasPermission('livestreams.update');
+
   const { data: stream, isLoading } = useStreamDetails(
     id,
     currentWorkspace?.id,
@@ -110,6 +133,7 @@ export default function StreamControlStudioPage() {
   const [isSyncingMeta, setIsSyncingMeta] = useState<Record<string, boolean>>({});
   const [isPublishingFb, setIsPublishingFb] = useState<Record<string, boolean>>({});
   const [isConfirmingInstagram, setIsConfirmingInstagram] = useState<Record<string, boolean>>({});
+  const [isRelayingInstagram, setIsRelayingInstagram] = useState<Record<string, boolean>>({});
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -128,8 +152,10 @@ export default function StreamControlStudioPage() {
     if (!stream || !currentWorkspace) return;
     try {
       setIsVerifyingSource(prev => ({ ...prev, [platform.id]: true }));
-      const currentKey = customKeys[platform.id] || platform.streamKey;
-      const currentUrl = customUrls[platform.id] || platform.streamUrl;
+      const rawKey = customKeys[platform.id] || platform.streamKey;
+      const rawUrl = customUrls[platform.id] || platform.streamUrl;
+      const currentKey = rawKey && rawKey !== '••••••••••••••••' ? rawKey.trim() : undefined;
+      const currentUrl = rawUrl ? rawUrl.trim() : undefined;
 
       console.log("[NexaSocial Studio] ▶ Step 1 Triggered: Verifying Facebook video source...", {
         streamId: stream.id,
@@ -156,7 +182,7 @@ export default function StreamControlStudioPage() {
         toast.info(res.message || "Video relay active. Waiting for video packets from camera...");
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err, "Failed to verify Facebook video source");
       console.error("[NexaSocial Studio] ✖ Step 1 Error:", err);
       toast.error(`Source verification notice: ${msg}`);
     } finally {
@@ -195,7 +221,7 @@ export default function StreamControlStudioPage() {
 
       toast.success(res.message || "Step 2 Complete: Post details synced with Facebook Graph API!");
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err, "Failed to sync post details");
       console.error("[NexaSocial Studio] ✖ Step 2 Error:", err);
       toast.error(`Failed to sync post details: ${msg}`);
     } finally {
@@ -231,7 +257,7 @@ export default function StreamControlStudioPage() {
 
       toast.success(res.message || "Step 3 Complete: Broadcast is now LIVE on Facebook!");
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err, "Failed to publish broadcast to Facebook");
       console.error("[NexaSocial Studio] ✖ Step 3 Error:", err);
       toast.error(`Facebook Go Live error: ${msg}`);
     } finally {
@@ -239,28 +265,52 @@ export default function StreamControlStudioPage() {
     }
   };
 
-  const handleConfirmInstagramLive = async (platform: StreamPlatform) => {
+  const handleConfirmInstagramLive = async (
+    platform: StreamPlatform,
+    manualConfirmed = false,
+  ) => {
     if (!stream || !currentWorkspace) return;
     try {
       setIsConfirmingInstagram(prev => ({ ...prev, [platform.id]: true }));
       console.log("[NexaSocial Studio] ▶ Confirming Instagram Live broadcast...", {
         streamId: stream.id,
         platformId: platform.id,
+        manualConfirmed,
       });
 
       const res = await livestreamService.confirmInstagramLive(stream.id, currentWorkspace.id, {
         platformId: platform.id,
+        manualConfirmed,
       });
 
-      console.log("[NexaSocial Studio] ✔ Instagram Live confirmed:", res);
+      console.log("[NexaSocial Studio] ✔ Instagram Live check response:", res);
 
       await queryClient.invalidateQueries({
         queryKey: queryKeys.streams.detail(stream.id),
       });
 
-      toast.success(res.message || "Instagram broadcast confirmed as LIVE!");
+      if (res.isLive) {
+        toast.success(res.message || "Instagram broadcast confirmed as LIVE!");
+      } else if (res.verificationStatus === 'VERIFICATION_UNAVAILABLE') {
+        toast.info(
+          res.message ||
+            "Simulated account detected. Automatic Meta Graph API verification is unavailable. Manual streaming to Instagram Live Producer remains active.",
+          { duration: 6000 }
+        );
+      } else if (res.verificationStatus === 'WAITING_FOR_MANUAL_CONFIRMATION') {
+        toast.info(
+          res.message ||
+            "Manual confirmation recorded. Video relay is active. Please verify your stream directly on Instagram.",
+          { duration: 6000 }
+        );
+      } else {
+        toast.info(
+          res.message ||
+            "Video relay is actively transmitting to Instagram. Complete 'Go Live' on Instagram (instagram.com -> Create -> Live video) to publish your broadcast.",
+        );
+      }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err, "Failed to confirm Instagram live status");
       console.error("[NexaSocial Studio] ✖ Instagram Confirm Error:", err);
       toast.error(`Instagram live confirmation notice: ${msg}`);
     } finally {
@@ -268,10 +318,95 @@ export default function StreamControlStudioPage() {
     }
   };
 
+  const handleStartInstagramRelay = async (platform: StreamPlatform) => {
+    if (!stream || !currentWorkspace) return;
+    if (!platform.streamKey) {
+      toast.error("Instagram Stream Key is not configured. Please paste your Stream Key in Step 1 first.");
+      return;
+    }
+    const accountType = (platform.connectedAccount?.metadata?.accountType || '').toUpperCase();
+    if (accountType === 'PERSONAL') {
+      toast.error(
+        "Personal Instagram accounts do not support desktop Live Producer streaming. Please convert your account to a Professional (Creator or Business) account in the Instagram app under Settings -> Account type and tools.",
+        { duration: 7000 }
+      );
+      return;
+    }
+    try {
+      setIsRelayingInstagram(prev => ({ ...prev, [platform.id]: true }));
+      if (!isCameraOn && !isScreenSharing) {
+        await startCamera();
+      }
+      const res = await livestreamService.startInstagramOutput(stream.id, currentWorkspace.id, {
+        platformId: platform.id,
+      });
+
+      // Open Instagram in a new browser tab with safe external-link handling
+      window.open(getInstagramProducerUrl(), '_blank', 'noopener,noreferrer');
+
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.streams.detail(stream.id),
+      });
+      toast.info(
+        res.message ||
+          "Your video is reaching Instagram. Complete Instagram's Go Live confirmation to publish your broadcast.",
+      );
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.message ||
+        (err instanceof Error ? err.message : String(err));
+      toast.error(`Instagram start output error: ${msg}`);
+    } finally {
+      setIsRelayingInstagram(prev => ({ ...prev, [platform.id]: false }));
+    }
+  };
+
+  const handleStopInstagramRelay = async (platform: StreamPlatform) => {
+    if (!stream || !currentWorkspace) return;
+    try {
+      setIsRelayingInstagram(prev => ({ ...prev, [platform.id]: true }));
+      const res = await livestreamService.stopInstagramOutput(stream.id, currentWorkspace.id, {
+        platformId: platform.id,
+      });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.streams.detail(stream.id),
+      });
+      toast.success(res.message || "Instagram RTMP output stopped.");
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.message ||
+        (err instanceof Error ? err.message : String(err));
+      toast.error(`Instagram stop output error: ${msg}`);
+    } finally {
+      setIsRelayingInstagram(prev => ({ ...prev, [platform.id]: false }));
+    }
+  };
+
   const handleSaveKey = async (platform: StreamPlatform) => {
     const key = customKeys[platform.id];
     if (!key?.trim() || !stream || !currentWorkspace) return;
+    const pName = (platform.connectedAccount?.platformName || '').toUpperCase();
     try {
+      if (pName === 'INSTAGRAM') {
+        const urlToUse = customUrls[platform.id] || platform.streamUrl;
+        await livestreamService.configureInstagramSource(stream.id, currentWorkspace.id, {
+          platformId: platform.id,
+          streamKey: key.trim(),
+          streamUrl: urlToUse,
+        });
+        setCustomKeys(prev => {
+          const next = { ...prev };
+          delete next[platform.id];
+          return next;
+        });
+        setEditingKeys(prev => ({ ...prev, [platform.id]: false }));
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.streams.detail(stream.id),
+        });
+        toast.success("Instagram Ingest configured & stream key securely encrypted!");
+        return;
+      }
+
       await updateStream({
         id: stream.id,
         workspaceId: currentWorkspace.id,
@@ -280,7 +415,6 @@ export default function StreamControlStudioPage() {
       setEditingKeys(prev => ({ ...prev, [platform.id]: false }));
       toast.success(`${platform.connectedAccount?.platformName || 'Platform'} Stream Key saved!`);
 
-      const pName = (platform.connectedAccount?.platformName || '').toUpperCase();
       if (pName === 'FACEBOOK') {
         void handleVerifyFacebookSource({ ...platform, streamKey: key.trim() });
       }
@@ -307,7 +441,24 @@ export default function StreamControlStudioPage() {
       toast.error("Invalid URL: Must start with rtmp:// or rtmps://");
       return;
     }
+    const pName = (platform.connectedAccount?.platformName || '').toUpperCase();
     try {
+      if (pName === 'INSTAGRAM') {
+        const keyToUse = customKeys[platform.id];
+        if (keyToUse) {
+          await livestreamService.configureInstagramSource(stream.id, currentWorkspace.id, {
+            platformId: platform.id,
+            streamKey: keyToUse.trim(),
+            streamUrl: trimmed,
+          });
+          setCustomKeys(prev => {
+            const next = { ...prev };
+            delete next[platform.id];
+            return next;
+          });
+        }
+      }
+
       await updateStream({
         id: stream.id,
         workspaceId: currentWorkspace.id,
@@ -316,7 +467,6 @@ export default function StreamControlStudioPage() {
       setEditingUrls(prev => ({ ...prev, [platform.id]: false }));
       toast.success(`${platform.connectedAccount?.platformName || 'Platform'} Endpoint URL saved!`);
 
-      const pName = (platform.connectedAccount?.platformName || '').toUpperCase();
       if (pName === 'FACEBOOK') {
         void handleVerifyFacebookSource({ ...platform, streamUrl: trimmed });
       }
@@ -359,16 +509,31 @@ export default function StreamControlStudioPage() {
     }
 
     if (pName === 'INSTAGRAM') {
-      const username = platform.connectedAccount?.metadata?.username || platform.connectedAccount?.accountName || platform.connectedAccount?.name;
-      if (username) return `https://www.instagram.com/${username}/live/`;
-      return "https://www.instagram.com/";
+      if (platform.viewerUrl && platform.viewerUrl.startsWith('http')) {
+        return platform.viewerUrl;
+      }
+      return null;
     }
 
     return "#";
   };
 
+  const getInstagramProfileUrl = (platform: StreamPlatform): string => {
+    const raw =
+      platform.connectedAccount?.metadata?.username ||
+      platform.connectedAccount?.accountName ||
+      platform.connectedAccount?.name;
+    if (!raw) return "https://www.instagram.com/";
+    const isMock =
+      platform.connectedAccount?.platformUserId?.startsWith('mock') ||
+      raw.toLowerCase().includes('mock');
+    if (isMock) return "https://www.instagram.com/";
+    const clean = raw.trim().replace(/^@/, '').replace(/\s+/g, '');
+    return `https://www.instagram.com/${clean}/`;
+  };
+
   const getInstagramProducerUrl = () => {
-    return "https://www.instagram.com/live/producer";
+    return "https://www.instagram.com/";
   };
 
   const getFacebookProducerUrl = (p: StreamPlatform) => {
@@ -620,11 +785,14 @@ export default function StreamControlStudioPage() {
   }, []);
 
   useEffect(() => {
-    const stream = getMasterBroadcastStream();
-    let timeoutId: ReturnType<typeof setTimeout>;
+    const masterStream = getMasterBroadcastStream();
     let frame = 0;
+    let isRunning = true;
+    let worker: Worker | null = null;
+    let fallbackTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const render = () => {
+      if (!isRunning) return;
       frame++;
       const canvas = masterCanvasRef.current;
       if (canvas) {
@@ -664,24 +832,65 @@ export default function StreamControlStudioPage() {
           }
         }
       }
-      timeoutId = setTimeout(render, 1000 / 30);
     };
 
-    render();
+    // Use Web Worker timer to avoid browser background tab throttling when user opens Instagram Live Producer
+    try {
+      const blob = new Blob(
+        [
+          `let timer; self.onmessage = function(e) {
+            if (e.data === 'start') {
+              timer = setInterval(function() { self.postMessage('tick'); }, 1000 / 30);
+            } else if (e.data === 'stop') {
+              clearInterval(timer);
+            }
+          };`,
+        ],
+        { type: "application/javascript" },
+      );
+      const workerUrl = URL.createObjectURL(blob);
+      worker = new Worker(workerUrl);
+      worker.onmessage = () => render();
+      worker.postMessage("start");
+    } catch {
+      // Fallback to setTimeout loop if Web Workers are restricted in environment
+      const loop = () => {
+        if (!isRunning) return;
+        render();
+        fallbackTimeout = setTimeout(loop, 1000 / 30);
+      };
+      loop();
+    }
 
-    if (videoRef.current && videoRef.current.srcObject !== stream) {
-      videoRef.current.srcObject = stream;
+    if (videoRef.current && videoRef.current.srcObject !== masterStream) {
+      videoRef.current.srcObject = masterStream;
       videoRef.current.play().catch(() => { });
     }
 
     return () => {
-      clearTimeout(timeoutId);
+      isRunning = false;
+      if (worker) {
+        worker.postMessage("stop");
+        worker.terminate();
+      }
+      if (fallbackTimeout) {
+        clearTimeout(fallbackTimeout);
+      }
     };
   }, [isCameraOn, isScreenSharing, getMasterBroadcastStream]);
 
+  const isAnyRelayActive = platforms.some(
+    (p) =>
+      (stream?.status === "LIVE" && Boolean(p.isRelayActive)) ||
+      p.status === "TRANSMITTING",
+  );
+
   const shouldPublishMedia =
-    (stream?.status === "LIVE" || isCameraOn || isScreenSharing) &&
+    (stream?.status === "LIVE" || isAnyRelayActive) &&
+    (isCameraOn || isScreenSharing) &&
     Boolean(activeSocket);
+
+  const isStreamingActive = stream?.status === "LIVE";
 
   useEffect(() => {
     const masterStream = getMasterBroadcastStream();
@@ -765,9 +974,20 @@ export default function StreamControlStudioPage() {
       }
       toast.info("Connecting media stream to platforms...");
       await startStream({ id: stream.id, workspaceId: currentWorkspace!.id });
-      toast.success("Broadcasting to destinations live!");
+
+      const hasInstagram = platforms.some(
+        p => p.connectedAccount?.platformName?.toUpperCase() === 'INSTAGRAM'
+      );
+      if (hasInstagram) {
+        window.open(getInstagramProducerUrl(), '_blank', 'noopener,noreferrer');
+        toast.info(
+          "Your video is reaching Instagram Live Producer. Complete Instagram's Go Live confirmation to publish your broadcast."
+        );
+      } else {
+        toast.success("Broadcasting to destinations live!");
+      }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err, "Broadcast start failed");
       toast.error(`Broadcast start error: ${msg}`);
     } finally {
       setIsStarting(false);
@@ -800,7 +1020,7 @@ export default function StreamControlStudioPage() {
 
       router.push("/streams");
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err, "Broadcast stop failed");
       toast.error(`Broadcast stop error: ${msg}`);
     } finally {
       setIsStopping(false);
@@ -813,7 +1033,7 @@ export default function StreamControlStudioPage() {
         title={
           <div className="flex items-center gap-2">
             {stream.title}
-            {stream.status !== "LIVE" && !isEditingMeta && (
+            {stream.status !== "LIVE" && !isEditingMeta && canUpdateStream && (
               <button onClick={() => setIsEditingMeta(true)} className="text-muted-foreground hover:text-white transition-colors">
                 <Edit3 className="w-4 h-4" />
               </button>
@@ -834,9 +1054,21 @@ export default function StreamControlStudioPage() {
                     <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                       🟢 {config.name} LIVE
                     </span>
-                  ) : platform.status === "WAITING_FOR_PLATFORM_PREVIEW" ? (
-                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/30">
-                      🔵 {config.name} Preview Ready
+                  ) : platform.status === "TRANSMITTING" ? (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/30">
+                      🟣 {config.name} Transmitting
+                    </span>
+                  ) : platform.status === "WAITING_FOR_INSTAGRAM_CONFIRMATION" || platform.status === "WAITING_FOR_PLATFORM_PREVIEW" ? (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                      ⏳ {config.name} Awaiting Confirmation
+                    </span>
+                  ) : platform.status === "STATUS_UNVERIFIED" ? (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                      ⚠️ {config.name} Unverified
+                    </span>
+                  ) : platform.status === "CONFIGURED" ? (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/30">
+                      🟣 {config.name} Configured
                     </span>
                   ) : platform.status === "PENDING" || platform.status === "SCHEDULED" ? (
                     <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
@@ -851,74 +1083,163 @@ export default function StreamControlStudioPage() {
                       ⚪ {config.name} Offline
                     </span>
                   )}
-                  {pName === 'FACEBOOK' && !((platform as any).viewerUrl) ? (
-                    <Button
-                      variant="outline"
-                      disabled
-                      className="h-10 text-xs font-semibold shadow-sm cursor-not-allowed opacity-70"
-                      style={{ borderColor: `${config.color}30`, backgroundColor: `${config.color}10`, color: config.color }}
-                      title={`Your ${config.name} watch link will be available after the broadcast is published.`}
-                    >
-                      <ExternalLink className="w-3.5 h-3.5 mr-2" />
-                      Watch on {config.name} 🔴
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      asChild
-                      className="h-10 text-xs font-semibold shadow-sm"
-                      style={{ borderColor: `${config.color}30`, backgroundColor: `${config.color}10`, color: config.color }}
-                    >
-                      <a
-                        href={getPlatformWatchUrl(platform)}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                  {pName === 'FACEBOOK' ? (
+                    platform.status === 'LIVE' || stream.status === 'LIVE' ? (
+                      <Button
+                        variant="outline"
+                        asChild
+                        className="h-10 text-xs font-semibold shadow-sm"
+                        style={{ borderColor: `${config.color}30`, backgroundColor: `${config.color}10`, color: config.color }}
+                      >
+                        <a
+                          href={getPlatformWatchUrl(platform) || '#'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 mr-2" />
+                          Watch on {config.name} 🔴
+                        </a>
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        disabled
+                        className="h-10 text-xs font-semibold shadow-sm cursor-not-allowed opacity-70"
+                        style={{ borderColor: `${config.color}30`, backgroundColor: `${config.color}10`, color: config.color }}
+                        title={`Your ${config.name} watch link will be available after the broadcast is live.`}
                       >
                         <ExternalLink className="w-3.5 h-3.5 mr-2" />
-                        Watch on {config.name} 🔴
-                      </a>
-                    </Button>
+                        Watch on {config.name}
+                      </Button>
+                    )
+                  ) : pName === 'INSTAGRAM' ? (
+                    platform.status === 'LIVE' ? (
+                      platform.viewerUrl ? (
+                        <Button
+                          variant="outline"
+                          asChild
+                          className="h-10 text-xs font-semibold shadow-sm"
+                          style={{ borderColor: `${config.color}30`, backgroundColor: `${config.color}10`, color: config.color }}
+                        >
+                          <a
+                            href={platform.viewerUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5 mr-2" />
+                            Watch on Instagram 🔴
+                          </a>
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          asChild
+                          className="h-10 text-xs font-semibold shadow-sm"
+                          style={{ borderColor: `${config.color}30`, backgroundColor: `${config.color}10`, color: config.color }}
+                          title="Instagram Live streams are viewed via your profile in the Instagram mobile app. Live Producer does not provide direct web broadcast links."
+                        >
+                          <a
+                            href={getInstagramProfileUrl(platform)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5 mr-2" />
+                            Instagram Profile ↗
+                          </a>
+                        </Button>
+                      )
+                    ) : (
+                      <Button
+                        variant="outline"
+                        asChild
+                        className="h-10 text-xs font-semibold shadow-sm"
+                        style={{ borderColor: `${config.color}30`, backgroundColor: `${config.color}10`, color: config.color }}
+                        title="Open Instagram on desktop to create a Live session"
+                      >
+                        <a
+                          href={getInstagramProducerUrl()}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 mr-2" />
+                          Open Instagram (Create Live) ↗
+                        </a>
+                      </Button>
+                    )
+                  ) : (
+                    platform.status === 'LIVE' || stream.status === 'LIVE' ? (
+                      <Button
+                        variant="outline"
+                        asChild
+                        className="h-10 text-xs font-semibold shadow-sm"
+                        style={{ borderColor: `${config.color}30`, backgroundColor: `${config.color}10`, color: config.color }}
+                      >
+                        <a
+                          href={getPlatformWatchUrl(platform) || '#'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 mr-2" />
+                          Watch on {config.name} 🔴
+                        </a>
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        disabled
+                        className="h-10 text-xs font-semibold shadow-sm cursor-not-allowed opacity-70"
+                        style={{ borderColor: `${config.color}30`, backgroundColor: `${config.color}10`, color: config.color }}
+                        title={`Your ${config.name} watch link will be available after the broadcast is live.`}
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 mr-2" />
+                        Watch on {config.name}
+                      </Button>
+                    )
                   )}
                 </div>
               );
             })}
 
-            {stream.status === "LIVE" ? (
-              <Button
-                onClick={handleStop}
-                disabled={isStopping}
-                className="h-10 text-xs font-semibold bg-rose-600 hover:bg-rose-700 shadow-md shadow-rose-600/20"
-              >
-                {isStopping ? (
-                  <>
-                    <span className="h-3.5 w-3.5 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                    Ending Broadcast...
-                  </>
-                ) : (
-                  <>
-                    <Square className="w-3.5 h-3.5 mr-2" />
-                    End Broadcast
-                  </>
-                )}
-              </Button>
+            {isStreamingActive ? (
+              canStopStream && (
+                <Button
+                  onClick={handleStop}
+                  disabled={isStopping}
+                  className="h-10 text-xs font-semibold bg-rose-600 hover:bg-rose-700 shadow-md shadow-rose-600/20"
+                >
+                  {isStopping ? (
+                    <>
+                      <span className="h-3.5 w-3.5 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      Ending Broadcast...
+                    </>
+                  ) : (
+                    <>
+                      <Square className="w-3.5 h-3.5 mr-2" />
+                      End Broadcast
+                    </>
+                  )}
+                </Button>
+              )
             ) : (
-              <Button
-                onClick={handleStart}
-                disabled={isStarting || stream.status === "FAILED"}
-                className="h-10 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-600/20"
-              >
-                {isStarting ? (
-                  <>
-                    <span className="h-3.5 w-3.5 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                    Connecting...
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-3.5 h-3.5 mr-2" />
-                    Go Live Now
-                  </>
-                )}
-              </Button>
+              canStartStream && (
+                <Button
+                  onClick={handleStart}
+                  disabled={isStarting || stream.status === "FAILED"}
+                  className="h-10 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 shadow-md shadow-emerald-600/20"
+                >
+                  {isStarting ? (
+                    <>
+                      <span className="h-3.5 w-3.5 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5 mr-2" />
+                      Go Live Now
+                    </>
+                  )}
+                </Button>
+              )
             )}
           </div>
         }
@@ -993,8 +1314,20 @@ export default function StreamControlStudioPage() {
               ) : (
                 <div className="text-center space-y-4 p-6">
                   <div className="relative inline-block">
-                    <div className="w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center mx-auto">
-                      <Radio className="w-8 h-8 text-rose-500 animate-pulse" />
+                    <div
+                      className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto transition-colors ${
+                        stream.status === "LIVE"
+                          ? "bg-rose-500/10 border border-rose-500/30"
+                          : "bg-muted/40 border border-border/50"
+                      }`}
+                    >
+                      <Radio
+                        className={`w-8 h-8 transition-colors ${
+                          stream.status === "LIVE"
+                            ? "text-rose-500 animate-pulse"
+                            : "text-muted-foreground"
+                        }`}
+                      />
                     </div>
                     {stream.status === "LIVE" && (
                       <span className="absolute -top-1 -right-1 flex h-4 w-4">
@@ -1578,10 +1911,33 @@ export default function StreamControlStudioPage() {
                 }
 
                 if (pName === 'INSTAGRAM') {
-                  const isLive = platform.status === 'LIVE' || stream.status === 'LIVE';
-                  const isWaitingPreview = platform.status === 'WAITING_FOR_PLATFORM_PREVIEW';
+                  const isLive =
+                    platform.status === 'LIVE' &&
+                    platform.verificationStatus === 'LIVE_VERIFIED';
+                  const isUnverified = platform.status === 'STATUS_UNVERIFIED';
+                  const isWaitingConfirmation =
+                    platform.status === 'WAITING_FOR_INSTAGRAM_CONFIRMATION' ||
+                    platform.status === 'WAITING_FOR_PLATFORM_PREVIEW';
+                  const isRelayActive = Boolean(platform.isRelayActive);
+                  const isTransmitting =
+                    platform.status === 'TRANSMITTING' ||
+                    platform.sourceStatus === 'TRANSMITTING' ||
+                    isRelayActive;
+                  const isStarting =
+                    platform.status === 'STARTING' ||
+                    platform.sourceStatus === 'STARTING' ||
+                    Boolean(isRelayingInstagram[platform.id]);
+                  const isCameraActive = isCameraOn || isScreenSharing;
+                  const isConfigured =
+                    platform.status === 'CONFIGURED' || Boolean(platform.streamKey);
                   const accountType = (platform.connectedAccount?.metadata?.accountType || '').toUpperCase();
                   const isPersonalAccount = accountType === 'PERSONAL';
+                  const isMockAccount = Boolean(
+                    platform.connectedAccount?.platformUserId?.startsWith('mock_') ||
+                    platform.connectedAccount?.metadata?.isMock ||
+                    platform.connectedAccount?.metadata?.accountType === 'MOCK' ||
+                    (platform as any).isMockAccount
+                  );
                   const username = platform.connectedAccount?.metadata?.username || platform.connectedAccount?.name || 'Instagram Account';
 
                   return (
@@ -1596,6 +1952,11 @@ export default function StreamControlStudioPage() {
                               <Badge variant="outline" className="text-[10px] bg-pink-500/10 text-pink-400 border-pink-500/30">
                                 Mode B: Live Producer Desktop Workflow
                               </Badge>
+                              {isMockAccount && (
+                                <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-400 border-amber-500/30">
+                                  Simulated ({platform.connectedAccount?.platformUserId})
+                                </Badge>
+                              )}
                             </h3>
                           </div>
                           <p className="text-xs text-zinc-400">
@@ -1611,31 +1972,201 @@ export default function StreamControlStudioPage() {
                         <div className="flex items-center gap-2">
                           {isLive ? (
                             <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[10px] font-bold animate-pulse">
-                              ● BROADCAST IS LIVE
+                              ● LIVE_VERIFIED (Broadcast Active)
                             </Badge>
-                          ) : isWaitingPreview ? (
+                          ) : isUnverified ? (
+                            <Badge className="bg-amber-500/15 text-amber-300 border-amber-500/40 text-[10px] font-semibold">
+                              ⚠️ STATUS_UNVERIFIED
+                            </Badge>
+                          ) : isWaitingConfirmation ? (
                             <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px] font-semibold">
-                              <AlertTriangle className="w-3 h-3 mr-1" />
-                              Transmitting / Awaiting Live Producer
+                              <AlertTriangle className="w-3 h-3 mr-1 text-amber-400" />
+                              WAITING_FOR_INSTAGRAM_CONFIRMATION
+                            </Badge>
+                          ) : isStarting ? (
+                            <Badge className="bg-blue-500/15 text-blue-400 border-blue-500/30 text-[10px] font-semibold">
+                              <span className="h-2 w-2 mr-1 rounded-full border border-blue-400 border-t-transparent animate-spin" />
+                              RELAY_STARTING
+                            </Badge>
+                          ) : isTransmitting ? (
+                            <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 text-[10px] font-semibold">
+                              <Radio className="w-3 h-3 mr-1 animate-pulse" />
+                              TRANSMITTING
+                            </Badge>
+                          ) : isCameraActive ? (
+                            <Badge className="bg-indigo-500/15 text-indigo-300 border-indigo-500/30 text-[10px] font-semibold">
+                              📷 CAMERA_ACTIVE
+                            </Badge>
+                          ) : isConfigured ? (
+                            <Badge className="bg-indigo-500/15 text-indigo-400 border-indigo-500/30 text-[10px] font-semibold">
+                              <Check className="w-3 h-3 mr-1" />
+                              CONFIGURED
+                            </Badge>
+                          ) : platform.status === 'ENDED' ? (
+                            <Badge className="bg-zinc-500/15 text-zinc-400 border-zinc-500/30 text-[10px] font-semibold">
+                              ENDED
+                            </Badge>
+                          ) : platform.status === 'FAILED' ? (
+                            <Badge className="bg-red-500/15 text-red-400 border-red-500/30 text-[10px] font-semibold">
+                              FAILED
                             </Badge>
                           ) : (
                             <Badge className="bg-pink-500/15 text-pink-400 border-pink-500/30 text-[10px] font-semibold">
-                              Ready for Ingest
+                              READY FOR SETUP
                             </Badge>
                           )}
                         </div>
                       </div>
 
-                      {/* Personal account warning if detected */}
-                      {isPersonalAccount && (
-                        <div className="p-3 rounded-lg bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs space-y-1">
-                          <div className="font-bold flex items-center gap-1.5 text-amber-400">
-                            <AlertCircle className="w-3.5 h-3.5" />
-                            Personal Account Detected
+                      {/* Transmission & Lifecycle Diagnostics Panel */}
+                      <div className="p-3 rounded-xl bg-black/40 border border-zinc-800/80 text-xs font-mono space-y-1.5">
+                        <div className="flex items-center justify-between text-zinc-400 text-[11px] font-semibold border-b border-zinc-800/60 pb-1">
+                          <span className="flex items-center gap-1.5 text-zinc-300">
+                            <ShieldCheck className="w-3.5 h-3.5 text-pink-400" />
+                            Transmission & Lifecycle Diagnostics
+                          </span>
+                          <span className="text-[10px] text-zinc-500">
+                            Stream: {stream.id.slice(0, 8)}...
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] pt-0.5">
+                          <div>
+                            <span className="text-zinc-500 block text-[10px]">Lifecycle State</span>
+                            <span className="font-semibold text-zinc-200">
+                              {isLive
+                                ? "LIVE_VERIFIED"
+                                : isUnverified
+                                ? "STATUS_UNVERIFIED"
+                                : isWaitingConfirmation
+                                ? "WAITING_CONFIRMATION"
+                                : isTransmitting
+                                ? "TRANSMITTING"
+                                : isStarting
+                                ? "RELAY_STARTING"
+                                : isCameraActive
+                                ? "CAMERA_ACTIVE"
+                                : platform.status || "IDLE"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-zinc-500 block text-[10px]">Relay Process</span>
+                            <span className="font-semibold text-zinc-200">
+                              {platform.relayDiagnostics?.pid
+                                ? `PID ${platform.relayDiagnostics.pid} (Running)`
+                                : isRelayActive
+                                ? "Active"
+                                : "Not Running"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-zinc-500 block text-[10px]">Frames / Chunks Sent</span>
+                            <span className="font-semibold text-emerald-400">
+                              {platform.transmittedChunks ?? platform.relayDiagnostics?.transmittedChunks ?? 0} chunks
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-zinc-500 block text-[10px]">Last Transmission</span>
+                            <span className="font-semibold text-zinc-300">
+                              {platform.lastTransmissionTime
+                                ? new Date(platform.lastTransmissionTime).toLocaleTimeString()
+                                : platform.relayDiagnostics?.lastTransmissionTime
+                                ? new Date(platform.relayDiagnostics.lastTransmissionTime).toLocaleTimeString()
+                                : isTransmitting
+                                ? "Active"
+                                : "None"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Mock Account Warning if detected */}
+                      {isMockAccount && (
+                        <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs space-y-2">
+                          <div className="font-bold flex items-center gap-1.5 text-amber-300">
+                            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                            Simulated / Mock Instagram Account Detected ({platform.connectedAccount?.platformUserId})
                           </div>
                           <p className="text-[11px] text-amber-200/90 leading-relaxed">
-                            Instagram Live Producer is officially available for <strong>Professional (Creator or Business)</strong> accounts. If you cannot access Live Producer on instagram.com, switch your account in the Instagram mobile app settings under &quot;Account type and tools&quot;.
+                            This connection was established in development simulation mode. Real Meta Graph API live broadcast verification is unavailable for simulated accounts.
+                            You can still stream to Instagram Live Producer using your manual stream key, and verify the broadcast manually on instagram.com.
+                            To enable automated API verification, reconnect a real Meta Professional (Creator or Business) account under <strong>Settings → Connected Accounts</strong>.
                           </p>
+                        </div>
+                      )}
+
+                      {/* Personal account warning if detected */}
+                      {isPersonalAccount && (
+                        <div className="p-3 rounded-lg bg-red-950/40 border border-red-500/30 text-red-200 text-xs space-y-1">
+                          <div className="font-bold flex items-center gap-1.5 text-red-400">
+                            <AlertCircle className="w-3.5 h-3.5" />
+                            Personal Account Ineligible for Live Streaming
+                          </div>
+                          <p className="text-[11px] text-red-200/90 leading-relaxed">
+                            Instagram Live Producer is officially available only for <strong>Professional (Creator or Business)</strong> accounts. Personal accounts cannot access desktop live streaming. Please switch your account in the Instagram mobile app settings under &quot;Account type and tools&quot;.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Instagram Live Eligibility & Session Pre-requisites Checklist */}
+                      <div className="p-3.5 rounded-xl bg-purple-950/20 border border-purple-500/30 text-xs space-y-2.5">
+                        <div className="font-bold flex items-center justify-between text-purple-300">
+                          <span className="flex items-center gap-1.5">
+                            <ShieldCheck className="w-4 h-4 text-purple-400" />
+                            Instagram Live Eligibility &amp; Setup Checklist
+                          </span>
+                          <Badge variant="outline" className="text-[10px] bg-purple-500/10 text-purple-300 border-purple-500/30">
+                            {isPersonalAccount ? "ELIGIBILITY_FAILED" : isMockAccount ? "ELIGIBILITY_NOT_VERIFIED (SIMULATED)" : "MANUAL_CHECKLIST"}
+                          </Badge>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                          <div className="flex items-start gap-2 p-2 rounded-lg bg-black/30 border border-border/30">
+                            <span className={isPersonalAccount ? "text-red-400 font-bold" : "text-emerald-400 font-bold"}>
+                              {isPersonalAccount ? "✗" : "✓"}
+                            </span>
+                            <div>
+                              <strong className="text-zinc-200">Professional Account: </strong>
+                              <span className={isPersonalAccount ? "text-red-300" : "text-zinc-400"}>
+                                {isPersonalAccount ? "Personal account ineligible for Live Producer" : "Creator or Business account required"}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-2 p-2 rounded-lg bg-black/30 border border-border/30">
+                            <span className="text-emerald-400 font-bold">✓</span>
+                            <div>
+                              <strong className="text-zinc-200">Public Profile: </strong>
+                              <span className="text-zinc-400">Account must be Public to broadcast to viewers</span>
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-2 p-2 rounded-lg bg-black/30 border border-border/30">
+                            <span className="text-purple-400 font-bold">ℹ</span>
+                            <div>
+                              <strong className="text-zinc-200">Desktop Live Video: </strong>
+                              <span className="text-zinc-400">Must see &quot;Create (+) → Live video&quot; on instagram.com</span>
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-2 p-2 rounded-lg bg-black/30 border border-border/30">
+                            <span className="text-amber-400 font-bold">⚠</span>
+                            <div>
+                              <strong className="text-zinc-200">Fresh Session Key: </strong>
+                              <span className="text-zinc-400">Instagram generates a new key per session; do not reuse old keys</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Instagram Ingest Error Alert */}
+                      {platform.instagramLastError && (
+                        <div className="p-3.5 rounded-xl bg-red-950/40 border border-red-500/40 text-red-200 text-xs flex items-start gap-2.5">
+                          <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                          <div className="space-y-1">
+                            <p className="font-bold text-red-300">Instagram Ingest Warning / Error</p>
+                            <p className="text-[11px] text-red-200/90 leading-relaxed">{platform.instagramLastError}</p>
+                            {platform.instagramLastErrorCode && (
+                              <Badge variant="outline" className="text-[9px] font-mono bg-red-500/10 text-red-400 border-red-500/30">
+                                Code: {platform.instagramLastErrorCode}
+                              </Badge>
+                            )}
+                          </div>
                         </div>
                       )}
 
@@ -1644,7 +2175,7 @@ export default function StreamControlStudioPage() {
                         <div className="flex items-center justify-between pb-2 border-b border-border/30">
                           <div className="flex items-center gap-2">
                             <span className="flex items-center justify-center w-5 h-5 rounded-full bg-pink-600/30 text-pink-400 text-xs font-bold border border-pink-500/40">1</span>
-                            <span className="text-sm font-bold text-white">Step 1 — Instagram Live Producer Ingest Setup</span>
+                            <span className="text-sm font-bold text-white">Step 1 — Instagram Live Session &amp; Ingest Setup</span>
                           </div>
                           <Button
                             variant="ghost"
@@ -1658,7 +2189,7 @@ export default function StreamControlStudioPage() {
                               rel="noopener noreferrer"
                             >
                               <ExternalLink className="w-3 h-3 mr-1" />
-                              Open Live Producer ↗
+                              Open Instagram (Create Live) ↗
                             </a>
                           </Button>
                         </div>
@@ -1802,7 +2333,25 @@ export default function StreamControlStudioPage() {
                         </div>
 
                         <p className="text-[11px] text-zinc-400 leading-relaxed pt-1">
-                          💡 <strong>How to get your Instagram Stream Key:</strong> Log into <a href="https://www.instagram.com/live/producer" target="_blank" rel="noopener noreferrer" className="text-pink-400 underline font-semibold">Instagram Live Producer</a> on your computer, click <em>Create (+) → Live video</em>, give your stream a title, and copy the Stream Key into the field above.
+                          💡 <strong>How to get your Instagram Stream Key:</strong>
+                          {" "}1. Open{" "}
+                          <a
+                            href={getInstagramProducerUrl()}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-pink-400 underline font-semibold"
+                          >
+                            instagram.com
+                          </a>
+                          {" "}in a new tab and log in.
+                          <br />
+                          2. In the left navigation, click <strong>Create (+)</strong> and select <strong>Live video</strong>.
+                          <br />
+                          3. Enter your broadcast title, select your audience (Public or Practice), and click <strong>Next</strong>.
+                          <br />
+                          4. Copy the session <strong>Stream URL</strong> and <strong>Stream Key</strong> into the fields above.
+                          <br />
+                          <span className="text-amber-400/90 font-medium">⚠️ Important: Instagram generates a new stream key for each live session. Do not reuse a stream key from an earlier stream. Keep the Instagram Live window open throughout your broadcast.</span>
                         </p>
                       </div>
 
@@ -1820,32 +2369,123 @@ export default function StreamControlStudioPage() {
                         <p className="text-[11px] text-zinc-300 leading-relaxed">
                           NexaSocial automatically formats and transcodes your broadcast stream to Instagram native <strong>9:16 portrait video (720x1280 @ 30fps)</strong> with AAC 44.1kHz audio, ensuring compatibility with all mobile viewers.
                         </p>
+
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 text-xs">
+                          <div className="flex items-center gap-2">
+                            {isTransmitting ? (
+                              <div className="flex items-center gap-2 text-emerald-400 font-semibold">
+                                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+                                <span>
+                                  {isLive
+                                    ? "Video relay is actively streaming live to Instagram."
+                                    : "Your video is reaching Instagram Live Producer. Complete Instagram's Go Live confirmation in Live Producer to publish."}
+                                </span>
+                              </div>
+                            ) : isStarting ? (
+                              <div className="flex items-center gap-2 text-blue-400 font-semibold">
+                                <span className="h-2 w-2 rounded-full bg-blue-400 animate-spin" />
+                                <span>Connecting video relay to Instagram Live Producer...</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2 text-zinc-400">
+                                <span className="h-2 w-2 rounded-full bg-zinc-600" />
+                                <span>Configure Instagram Live Producer and start your video transmission.</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {isTransmitting ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleStopInstagramRelay(platform)}
+                                disabled={isRelayingInstagram[platform.id]}
+                                className="h-8 px-3 text-xs font-semibold border-red-500/40 text-red-400 hover:bg-red-500/10"
+                              >
+                                {isRelayingInstagram[platform.id] ? (
+                                  <>
+                                    <span className="h-3 w-3 mr-1.5 animate-spin rounded-full border-2 border-red-400 border-t-transparent" />
+                                    Stopping Output...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Square className="w-3.5 h-3.5 mr-1.5 fill-current" />
+                                    Stop Video Transmission
+                                  </>
+                                )}
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                onClick={() => handleStartInstagramRelay(platform)}
+                                disabled={isRelayingInstagram[platform.id] || !platform.streamKey}
+                                className="h-8 px-3.5 text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-600/20 disabled:opacity-50"
+                              >
+                                {isRelayingInstagram[platform.id] ? (
+                                  <>
+                                    <span className="h-3 w-3 mr-1.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                                    Starting Relay...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Play className="w-3.5 h-3.5 mr-1.5 fill-current" />
+                                    Start Video Transmission
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
                       </div>
 
-                      {/* Step 3: Go Live & Confirmation */}
+                      {/* Official Meta Architecture Notice */}
+                      <div className="p-3.5 rounded-xl bg-pink-950/20 border border-pink-500/25 text-xs text-zinc-300 space-y-1">
+                        <p className="font-semibold text-pink-300 flex items-center gap-1.5">
+                          <Info className="w-3.5 h-3.5" />
+                          Official Meta Instagram Live Architecture:
+                        </p>
+                        <p className="text-[11px] text-zinc-400 leading-relaxed">
+                          Meta&apos;s official Instagram Graph API does not provide a public publishing endpoint for desktop live streams. NexaSocial automatically transcodes and relays your 9:16 portrait video to Instagram Live Producer, where Meta requires clicking &quot;Go Live&quot; to publish to your audience.
+                        </p>
+                      </div>
+
+                      {/* Step 3: Go Live & Broadcast Verification */}
                       <div className={`p-4 rounded-xl border transition-all ${isLive ? 'bg-emerald-950/20 border-emerald-500/40' : 'bg-zinc-900/40 border-border/50'}`}>
                         <div className="flex items-center justify-between pb-3 border-b border-border/30">
                           <div className="flex items-center gap-2">
                             <span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600/30 text-emerald-400 text-xs font-bold border border-emerald-500/40">3</span>
-                            <span className="text-sm font-bold text-white">Step 3 — Go Live & Broadcast Confirmation</span>
+                            <span className="text-sm font-bold text-white">Step 3 — Go Live & Broadcast Verification</span>
                           </div>
                           {isLive ? (
                             <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[10px] font-bold animate-pulse">
-                              ● BROADCAST IS LIVE
+                              ● LIVE_VERIFIED (Broadcast Active)
+                            </Badge>
+                          ) : platform.publishStatus === 'MANUALLY_CONFIRMED' ? (
+                            <Badge className="bg-amber-500/15 text-amber-300 border-amber-500/40 text-[10px] font-semibold">
+                              ✋ WAITING_FOR_MANUAL_CONFIRMATION
+                            </Badge>
+                          ) : isUnverified ? (
+                            <Badge className="bg-amber-500/15 text-amber-300 border-amber-500/40 text-[10px] font-semibold">
+                              ⚠️ {isMockAccount ? 'VERIFICATION_UNAVAILABLE (SIMULATED)' : 'STATUS_UNVERIFIED'}
+                            </Badge>
+                          ) : isWaitingConfirmation || isTransmitting ? (
+                            <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px] font-semibold">
+                              ⏳ WAITING_FOR_INSTAGRAM_CONFIRMATION
                             </Badge>
                           ) : (
-                            <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px] font-semibold">
-                              Awaiting Platform Confirmation
+                            <Badge className="bg-zinc-500/15 text-zinc-400 border-zinc-500/30 text-[10px] font-semibold">
+                              Pending Transmission
                             </Badge>
                           )}
                         </div>
 
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 text-xs">
+                        <div className="pt-3 space-y-3 text-xs">
                           {isLive ? (
                             <div className="space-y-1">
                               <p className="text-emerald-400 font-bold flex items-center gap-1.5">
                                 <CheckCircle2 className="w-4 h-4" />
-                                Broadcast is streaming live on Instagram!
+                                Instagram broadcast verified as LIVE via Meta Graph API!
                               </p>
                               {platform.publishedAt && (
                                 <p className="text-[11px] text-zinc-400">
@@ -1853,65 +2493,125 @@ export default function StreamControlStudioPage() {
                                 </p>
                               )}
                             </div>
+                          ) : platform.publishStatus === 'MANUALLY_CONFIRMED' ? (
+                            <div className="p-3 rounded-lg bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs space-y-1.5">
+                              <p className="font-semibold text-amber-300 flex items-center gap-1.5">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                Manual Confirmation Recorded (Unverified via Meta API):
+                              </p>
+                              <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                                You confirmed that you clicked &quot;Go Live&quot; in Instagram Live Producer. Video relay is continuously transmitting to Instagram. Note that this is recorded as a manual confirmation, not official Meta Graph API proof. Viewers on Instagram can watch via your profile story ring.
+                              </p>
+                            </div>
+                          ) : isUnverified ? (
+                            <div className="p-3 rounded-lg bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs space-y-1.5">
+                              <p className="font-semibold text-amber-300 flex items-center gap-1.5">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                {isMockAccount ? 'Verification Unavailable (Simulated Account):' : 'Public broadcast unverified on Meta Graph API:'}
+                              </p>
+                              <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                                {isMockAccount
+                                  ? 'A simulated account (mock_ig_user_101) is connected. Real Meta Graph API broadcast verification is bypassed. Your video is streaming to Instagram Live Producer, where you must click "Go Live" on instagram.com to publish to your audience.'
+                                  : 'Video chunks are actively transmitting to Instagram. If you clicked Go Live in Instagram, Meta may take 15–30 seconds to reflect public status. If using a personal account or standalone key without Meta Business permissions, your stream is broadcasted directly via Live Producer while NexaSocial maintains the video relay.'}
+                              </p>
+                            </div>
+                          ) : isWaitingConfirmation || isTransmitting ? (
+                            <div className="p-3 rounded-lg bg-blue-950/30 border border-blue-500/30 text-blue-200 text-xs space-y-1.5">
+                              <p className="font-semibold text-blue-300 flex items-center gap-1.5">
+                                <Info className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                                Video reaching Instagram:
+                              </p>
+                              <p className="text-[11px] text-blue-200/90 leading-relaxed">
+                                1. Open <strong>Instagram</strong> (<a href={getInstagramProducerUrl()} target="_blank" rel="noopener noreferrer" className="underline font-semibold text-white">instagram.com</a>), click <strong>Create (+) → Live video</strong>, and verify incoming video preview.<br />
+                                2. Keep the Instagram Live window open and click <strong>Go Live</strong> to publish to your audience.<br />
+                                3. Return here and click <strong>{isMockAccount ? "Confirm Live Manually (Simulated)" : "Verify Live Status on Instagram"}</strong>.
+                              </p>
+                            </div>
                           ) : (
-                            <p className="text-zinc-300 text-[11px] leading-relaxed">
-                              Once your camera is transmitting, check the preview in <strong>Instagram Live Producer</strong>, click <strong>Go Live</strong> on Instagram, then click <strong>Confirm Live on NexaSocial</strong>.
+                            <p className="text-zinc-400 text-[11px] leading-relaxed">
+                              Configure Instagram Live and start video transmission in Step 2 above.
                             </p>
                           )}
 
-                          <div className="flex items-center gap-2 self-start sm:self-auto">
-                            {isLive ? (
+                          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                            <div className="flex flex-wrap items-center gap-2">
                               <Button
                                 size="sm"
                                 asChild
-                                className="h-9 px-4 text-xs font-bold bg-pink-600 hover:bg-pink-700 text-white shadow-md shadow-pink-600/30"
+                                variant="outline"
+                                className="h-9 px-3 text-xs border-pink-500/40 text-pink-300 hover:bg-pink-500/10"
                               >
                                 <a
-                                  href={getPlatformWatchUrl(platform)}
+                                  href={getInstagramProducerUrl()}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                 >
                                   <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
-                                  Watch on Instagram 🔴
+                                  Open Instagram (Live Video) ↗
                                 </a>
                               </Button>
-                            ) : (
-                              <>
+
+                              <Button
+                                size="sm"
+                                asChild
+                                variant="outline"
+                                className="h-9 px-3 text-xs border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                                title="Instagram mobile viewers view live streams via the profile story ring"
+                              >
+                                <a
+                                  href={getInstagramProfileUrl(platform)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                                  View Profile ↗
+                                </a>
+                              </Button>
+
+                              {platform.viewerUrl && (
                                 <Button
                                   size="sm"
                                   asChild
-                                  variant="outline"
-                                  className="h-9 px-3 text-xs border-pink-500/40 text-pink-300 hover:bg-pink-500/10"
+                                  className="h-9 px-4 text-xs font-bold bg-pink-600 hover:bg-pink-700 text-white shadow-md shadow-pink-600/30"
                                 >
                                   <a
-                                    href={getInstagramProducerUrl()}
+                                    href={platform.viewerUrl}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                   >
                                     <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
-                                    Open Live Producer
+                                    Watch Broadcast 🔴
                                   </a>
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleConfirmInstagramLive(platform)}
-                                  disabled={isConfirmingInstagram[platform.id] || isLive}
-                                  className="h-9 px-4 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20"
-                                >
-                                  {isConfirmingInstagram[platform.id] ? (
-                                    <>
-                                      <span className="h-3 w-3 mr-1.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                                      Verifying Live State...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                                      Confirm Live on Instagram
-                                    </>
-                                  )}
-                                </Button>
-                              </>
-                            )}
+                              )}
+                            </div>
+
+                            <Button
+                              size="sm"
+                              onClick={() => handleConfirmInstagramLive(platform, true)}
+                              disabled={
+                                isConfirmingInstagram[platform.id] ||
+                                (!isWaitingConfirmation && !isTransmitting && !isRelayActive && !isUnverified)
+                              }
+                              className="h-9 px-4 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                              title={
+                                !isWaitingConfirmation && !isTransmitting && !isRelayActive && !isUnverified
+                                  ? "Start video transmission first before verifying live status"
+                                  : undefined
+                              }
+                            >
+                              {isConfirmingInstagram[platform.id] ? (
+                                <>
+                                  <span className="h-3 w-3 mr-1.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                                  Verifying Live Status...
+                                </>
+                              ) : (
+                                <>
+                                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                                  {isMockAccount ? "Confirm Live Manually (Simulated)" : "Verify Live Status on Instagram"}
+                                </>
+                              )}
+                            </Button>
                           </div>
                         </div>
                       </div>

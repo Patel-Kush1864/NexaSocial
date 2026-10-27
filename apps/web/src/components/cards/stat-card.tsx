@@ -7,9 +7,12 @@ interface StatCardProps {
   title: string;
   value: string | number;
   change?: string;
+  changeLabel?: string;
+  showTrendIcon?: boolean;
   isPositive?: boolean;
   icon: LucideIcon;
   gradient?: string;
+  badge?: ReactNode;
   children?: ReactNode;
 }
 
@@ -17,14 +20,24 @@ export function StatCard({
   title,
   value,
   change,
+  changeLabel,
+  showTrendIcon = true,
   isPositive = true,
   icon: Icon,
   gradient = 'from-violet-600 to-indigo-600',
+  badge,
   children,
 }: StatCardProps) {
+  const displayLabel =
+    changeLabel !== undefined
+      ? changeLabel
+      : change?.includes('%')
+      ? 'vs last period'
+      : '';
+
   return (
     <Card className="glass-panel border-border/50 shadow-lg relative overflow-hidden group hover:border-primary/40 transition-all">
-      <CardContent className="p-6">
+      <CardContent className="p-5 sm:p-6">
         <div className="flex items-center justify-between">
           <div className="space-y-1">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -37,31 +50,37 @@ export function StatCard({
 
           <div
             className={cn(
-              'w-12 h-12 rounded-2xl bg-gradient-to-tr flex items-center justify-center text-white shadow-lg shrink-0 group-hover:scale-110 transition-transform',
+              'w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-tr flex items-center justify-center text-white shadow-lg shrink-0 group-hover:scale-110 transition-transform',
               gradient,
             )}
           >
-            <Icon className="w-6 h-6" />
+            <Icon className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
         </div>
 
-        {(change || children) && (
+        {(change || badge || children) && (
           <div className="mt-4 pt-3 border-t border-border/30 flex items-center justify-between text-xs">
             {change && (
               <div
                 className={cn(
-                  'flex items-center gap-1 font-semibold',
+                  'flex items-center gap-1.5 font-medium truncate',
                   isPositive ? 'text-emerald-500' : 'text-rose-500',
                 )}
               >
-                {isPositive ? (
-                  <TrendingUp className="w-3.5 h-3.5" />
-                ) : (
-                  <TrendingDown className="w-3.5 h-3.5" />
+                {showTrendIcon && (
+                  isPositive ? (
+                    <TrendingUp className="w-3.5 h-3.5 shrink-0" />
+                  ) : (
+                    <TrendingDown className="w-3.5 h-3.5 shrink-0" />
+                  )
                 )}
-                <span>{change} vs last period</span>
+                <span className="truncate">
+                  {change}
+                  {displayLabel ? ` ${displayLabel}` : ''}
+                </span>
               </div>
             )}
+            {badge && <div className="shrink-0 ml-auto">{badge}</div>}
             {children}
           </div>
         )}

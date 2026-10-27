@@ -408,6 +408,8 @@ export function useToggleSocialPlatform() {
       adminService.updateSocialPlatformStatus(id, enabled),
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'social-platforms'] });
+      queryClient.invalidateQueries({ queryKey: ['social'] });
+      queryClient.invalidateQueries({ queryKey: ['social', 'platforms'] });
       toast.success(`Platform ${variables.enabled ? 'enabled' : 'disabled'} successfully`);
     },
     onError: () => toast.error('Failed to update platform status'),

@@ -374,9 +374,9 @@ export class UsersService {
 
   async getUserSubscriptions(id: string) {
     const data = await this.dataSource.query(
-      `SELECT us.id, us.status, us.current_period_start, us.current_period_end, us.cancel_at_period_end, p.name as plan_name, p.interval 
+      `SELECT us.id, us.status, us.start_date as current_period_start, us.end_date as current_period_end, us.cancel_at_period_end, p.name as plan_name, p.interval 
        FROM user_subscriptions us 
-       LEFT JOIN plans p ON us.plan_id = p.id 
+       LEFT JOIN subscription_plans p ON us.plan_id = p.id 
        WHERE us.user_id = ? 
        ORDER BY us.created_at DESC`,
       [id],
@@ -386,9 +386,9 @@ export class UsersService {
 
   async getUserPayments(id: string, limit = 20, offset = 0) {
     const data = await this.dataSource.query(
-      `SELECT p.id, p.amount, p.currency, p.status, p.payment_method_type, p.created_at, pl.name as plan_name 
+      `SELECT p.id, p.amount, p.currency, p.status, p.gateway as payment_method_type, p.created_at, pl.name as plan_name 
        FROM payments p 
-       LEFT JOIN plans pl ON p.plan_id = pl.id 
+       LEFT JOIN subscription_plans pl ON p.plan_id = pl.id 
        WHERE p.user_id = ? 
        ORDER BY p.created_at DESC 
        LIMIT ? OFFSET ?`,
@@ -405,10 +405,10 @@ export class UsersService {
 
   async getUserSocialAccounts(id: string) {
     const data = await this.dataSource.query(
-      `SELECT id, platform_name, account_name, profile_image_url, connection_status, is_active, created_at, updated_at, last_sync_at, last_error 
-       FROM connected_accounts 
-       WHERE user_id = ? 
-       ORDER BY created_at DESC`,
+      `SELECT ca.id, ca.platform_name, ca.name as account_name, ca.avatar as profile_image_url, ca.status as connection_status, 1 as is_active, ca.created_at, ca.updated_at, ca.updated_at as last_sync_at 
+       FROM connected_accounts ca 
+       WHERE ca.workspace_id IN (SELECT workspace_id FROM workspace_members WHERE user_id = ?)
+       ORDER BY ca.created_at DESC`,
       [id],
     );
     return { data, total: data.length };
@@ -416,17 +416,18 @@ export class UsersService {
 
   async getUserStreams(id: string, limit = 20, offset = 0) {
     const data = await this.dataSource.query(
-      `SELECT id, title, status, scheduled_start_time, actual_start_time, actual_end_time, created_at 
+      `SELECT id, title, status, scheduled_at as scheduled_start_time, started_at as actual_start_time, ended_at as actual_end_time, created_at 
        FROM live_streams 
-       WHERE user_id = ? 
+       WHERE created_by = ? OR workspace_id IN (SELECT workspace_id FROM workspace_members WHERE user_id = ?) 
        ORDER BY created_at DESC 
        LIMIT ? OFFSET ?`,
-      [id, limit, offset],
+      [id, id, limit, offset],
     );
 
     const totalRes = await this.dataSource.query(
-      'SELECT COUNT(*) as total FROM live_streams WHERE user_id = ?',
-      [id],
+      `SELECT COUNT(*) as total FROM live_streams 
+       WHERE created_by = ? OR workspace_id IN (SELECT workspace_id FROM workspace_members WHERE user_id = ?)`,
+      [id, id],
     );
 
     return { data, total: parseInt(totalRes[0]?.total || '0', 10) };
@@ -434,7 +435,7 @@ export class UsersService {
 
   async getUserActivity(id: string, limit = 20, offset = 0) {
     const data = await this.dataSource.query(
-      `SELECT id, action, description, created_at 
+      `SELECT id, action, COALESCE(description, action) as description, created_at 
        FROM activity_logs 
        WHERE user_id = ? 
        ORDER BY created_at DESC 
@@ -444,8 +445,7 @@ export class UsersService {
 
     const totalRes = await this.dataSource.query(
       'SELECT COUNT(*) as total FROM activity_logs WHERE user_id = ?',
-      // eslint-disable-next-line prettier/prettier
-      [id]
+      [id],
     );
 
     return { data, total: parseInt(totalRes[0]?.total || '0', 10) };

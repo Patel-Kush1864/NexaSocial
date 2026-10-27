@@ -108,38 +108,29 @@ export async function triggerReportExport(reportType: ReportType, params: Report
     Object.entries(params).filter(([_, v]) => v !== undefined && v !== '')
   );
 
-  const queryString = new URLSearchParams(cleanParams as any).toString();
-  const url = `${process.env.NEXT_PUBLIC_API_URL}${endpointMap[reportType]}?${queryString}`;
+  const endpoint = endpointMap[reportType];
+  if (!endpoint) {
+    throw new Error(`Unsupported report type: ${reportType}`);
+  }
 
-  // We have to use fetch manually here if apiClient doesn't support blob streams directly 
-  // or we can use apiClient but configure it for blobs.
-  // Using native fetch for download pattern:
-  const token = localStorage.getItem('auth_token'); // Or get from auth store
-
-  const response = await fetch(url, {
-    method: 'GET',
+  const response = await apiClient.get<Blob>(endpoint, {
+    params: cleanParams,
+    responseType: 'blob',
     headers: {
-      'Authorization': `Bearer ${token}`,
       'x-nexa-scope': 'PLATFORM',
     },
   });
 
-  if (!response.ok) {
-    if (response.status === 403) throw new Error('Forbidden: You do not have permission to export this report.');
-    throw new Error('Failed to generate export');
-  }
-
-  const blob = await response.blob();
+  const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
   const downloadUrl = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.style.display = 'none';
   a.href = downloadUrl;
 
-  // Extract filename from header if possible
-  const disposition = response.headers.get('Content-Disposition');
+  const disposition = (response.headers as any)?.['content-disposition'];
   let filename = `report_${reportType.toLowerCase()}_export.csv`;
-  if (disposition && disposition.indexOf('filename=') !== -1) {
-    const matches = /filename="([^"]*)"/.exec(disposition);
+  if (disposition && typeof disposition === 'string' && disposition.includes('filename=')) {
+    const matches = /filename="?([^"]*)"?/.exec(disposition);
     if (matches != null && matches[1]) {
       filename = matches[1];
     }
@@ -148,6 +139,6 @@ export async function triggerReportExport(reportType: ReportType, params: Report
   a.download = filename;
   document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   window.URL.revokeObjectURL(downloadUrl);
-  a.remove();
 }

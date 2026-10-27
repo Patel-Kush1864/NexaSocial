@@ -33,6 +33,15 @@ describe('WorkspacesService (Unit)', () => {
 
     subscriptionsService = {
       assignFreePlan: jest.fn(),
+      findActiveSubscription: jest.fn().mockResolvedValue({
+        id: 'sub-1',
+        status: 'ACTIVE',
+        plan: {
+          id: 'plan-1',
+          name: 'Starter Plan',
+          features: { workspaces: 2 },
+        },
+      }),
     } as any;
 
     const mockDataSource = {
@@ -69,6 +78,16 @@ describe('WorkspacesService (Unit)', () => {
   });
 
   describe('createWorkspace', () => {
+    it('should throw BadRequestException if user has no active subscription', async () => {
+      (subscriptionsService.findActiveSubscription as jest.Mock).mockResolvedValue(
+        null,
+      );
+
+      await expect(
+        workspacesService.createWorkspace('user-1', { name: 'My Workspace' }),
+      ).rejects.toThrow('Please select and activate a subscription plan before setting up your workspace.');
+    });
+
     it('should throw BadRequestException if usage limit is reached', async () => {
       (usageLimitService.canCreateWorkspace as jest.Mock).mockResolvedValue(
         false,

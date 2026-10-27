@@ -57,10 +57,14 @@ export function ProfileForm() {
       const updatedUser = await userService.uploadAvatar(file);
       setUser(updatedUser);
       toast.success('Avatar updated successfully');
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
     } catch {
       toast.error('Failed to upload avatar');
     } finally {
       setIsUploading(false);
+      e.target.value = '';
     }
   };
 

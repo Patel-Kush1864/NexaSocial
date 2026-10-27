@@ -1,6 +1,6 @@
 'use client';
 
-import { format, subDays, subMonths, startOfMonth, endOfMonth } from 'date-fns';
+import { format, subDays, subMonths, startOfMonth, endOfMonth, startOfDay, endOfDay } from 'date-fns';
 import { Calendar as CalendarIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -39,23 +39,23 @@ export function ReportDateRange({ date, setDate }: ReportDateRangeProps) {
     const today = new Date();
     switch (preset) {
       case 'today':
-        setDate({ from: today, to: today });
+        setDate({ from: startOfDay(today), to: endOfDay(today) });
         break;
       case 'yesterday':
         const yesterday = subDays(today, 1);
-        setDate({ from: yesterday, to: yesterday });
+        setDate({ from: startOfDay(yesterday), to: endOfDay(yesterday) });
         break;
       case 'last-7':
-        setDate({ from: subDays(today, 7), to: today });
+        setDate({ from: startOfDay(subDays(today, 7)), to: endOfDay(today) });
         break;
       case 'last-30':
-        setDate({ from: subDays(today, 30), to: today });
+        setDate({ from: startOfDay(subDays(today, 30)), to: endOfDay(today) });
         break;
       case 'last-90':
-        setDate({ from: subDays(today, 90), to: today });
+        setDate({ from: startOfDay(subDays(today, 90)), to: endOfDay(today) });
         break;
       case 'this-month':
-        setDate({ from: startOfMonth(today), to: today });
+        setDate({ from: startOfMonth(today), to: endOfDay(today) });
         break;
       case 'last-month':
         const lastMonth = subMonths(today, 1);
@@ -66,7 +66,7 @@ export function ReportDateRange({ date, setDate }: ReportDateRangeProps) {
 
   const handleApplyCustom = () => {
     if (customFrom && customTo) {
-      setDate({ from: new Date(customFrom), to: new Date(customTo) });
+      setDate({ from: startOfDay(new Date(customFrom)), to: endOfDay(new Date(customTo)) });
     }
   };
 

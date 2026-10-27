@@ -79,7 +79,7 @@ export class ProfileController {
   )
   uploadAvatar(
     @CurrentUser() user: CurrentUserType,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file: any,
   ) {
     if (!file) {
       throw new BadRequestException('Please select an image file to upload');

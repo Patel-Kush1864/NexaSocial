@@ -21,6 +21,7 @@ const CATEGORIES = [
   { id: 'SUBSCRIPTION', label: 'Subscriptions' },
   { id: 'SOCIAL', label: 'Social' },
   { id: 'STREAM', label: 'Streams' },
+  { id: 'NOTIFICATIONS', label: 'Notifications' },
 ];
 
 export default function PlatformActivityPage() {

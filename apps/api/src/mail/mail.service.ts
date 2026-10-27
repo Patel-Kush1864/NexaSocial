@@ -1195,9 +1195,10 @@ export class MailService {
     if (eventType) {
       qb.andWhere('log.eventType = :eventType', { eventType });
     }
-    if (search) {
-      qb.andWhere('(log.recipient LIKE :search OR log.subject LIKE :search)', {
-        search: `%${search}%`,
+    const searchTerm = search || query.recipient;
+    if (searchTerm) {
+      qb.andWhere('(log.recipient LIKE :searchTerm OR log.subject LIKE :searchTerm)', {
+        searchTerm: `%${searchTerm}%`,
       });
     }
     if (dateFrom) {
@@ -1217,6 +1218,7 @@ export class MailService {
 
     return {
       data,
+      logs: data,
       total,
       page,
       limit,

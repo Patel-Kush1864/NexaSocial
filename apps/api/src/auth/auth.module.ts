@@ -10,6 +10,8 @@ import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { RefreshStrategy } from './strategies/refresh.strategy';
 import { MailModule } from '../mail/mail.module';
+import { WorkspacesModule } from '../workspaces/workspaces.module';
+import { InvitationsModule } from '../invitations/invitations.module';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { MailModule } from '../mail/mail.module';
     JwtModule.register({}),
     TypeOrmModule.forFeature([UserSession]),
     MailModule,
+    WorkspacesModule,
+    InvitationsModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, LocalStrategy, JwtStrategy, RefreshStrategy],

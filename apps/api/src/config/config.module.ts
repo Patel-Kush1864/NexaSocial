@@ -9,12 +9,12 @@ import { validationSchema } from './validation.schema';
       isGlobal: true,
       load: configLoads,
       validationSchema,
-      envFilePath:
+      envFilePath: [
+        '.env',
         process.env.NODE_ENV === 'production'
           ? '.env.production'
-          : process.env.NODE_ENV === 'development'
-            ? '.env.development'
-            : '.env',
+          : '.env.development',
+      ],
     }),
   ],
   exports: [NestConfigModule],

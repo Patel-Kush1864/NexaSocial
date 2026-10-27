@@ -1,8 +1,10 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/require-await */
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PlatformAdapter } from '../interfaces/platform-adapter.interface';
 
-export type InstagramStreamingMode = 'AUTOMATED' | 'LIVE_PRODUCER' | 'UNSUPPORTED';
+export type InstagramStreamingMode =
+  'AUTOMATED' | 'LIVE_PRODUCER' | 'UNSUPPORTED';
 
 export interface InstagramBroadcastOptions {
   customStreamUrl?: string;
@@ -22,8 +24,13 @@ export class InstagramAdapter implements PlatformAdapter {
    * Public Meta Instagram Graph API does not currently offer an automated broadcast creation endpoint.
    * Instagram Live Producer (RTMP/RTMPS) is the official supported workflow for desktop software.
    */
-  getStreamingMode(options?: InstagramBroadcastOptions): InstagramStreamingMode {
-    if (options?.accountType === 'PERSONAL' || options?.isLiveEligible === false) {
+  getStreamingMode(
+    options?: InstagramBroadcastOptions,
+  ): InstagramStreamingMode {
+    if (
+      options?.accountType === 'PERSONAL' ||
+      options?.isLiveEligible === false
+    ) {
       return 'UNSUPPORTED';
     }
     return 'LIVE_PRODUCER';
@@ -43,15 +50,17 @@ export class InstagramAdapter implements PlatformAdapter {
       const parsed = new URL(trimmed.replace(/^rtmps?:\/\//, 'http://'));
       const host = parsed.hostname.toLowerCase();
 
-      // Disallow local and loopback addresses
+      // Disallow local, loopback, and private addresses
       if (
         host === 'localhost' ||
         host === '127.0.0.1' ||
         host === '0.0.0.0' ||
+        host === '::1' ||
         host.endsWith('.local') ||
         host.startsWith('10.') ||
         host.startsWith('192.168.') ||
-        host.startsWith('169.254.')
+        host.startsWith('169.254.') ||
+        /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host)
       ) {
         return false;
       }
@@ -69,6 +78,24 @@ export class InstagramAdapter implements PlatformAdapter {
   }
 
   /**
+   * Safely builds the complete RTMP destination without double-appending stream keys.
+   */
+  buildRtmpDestination(serverUrl: string, streamKey: string): string {
+    const cleanUrl = (serverUrl || InstagramAdapter.DEFAULT_INGEST_URL).trim();
+    const cleanKey = (streamKey || '').trim();
+
+    if (!cleanKey) return cleanUrl;
+
+    if (cleanUrl.endsWith(`/${cleanKey}`) || cleanUrl.endsWith(cleanKey)) {
+      return cleanUrl;
+    }
+
+    const base = cleanUrl.replace(/\/+$/, '');
+    const key = cleanKey.replace(/^\/+/, '');
+    return `${base}/${key}`;
+  }
+
+  /**
    * Validates Instagram Stream Key.
    */
   validateStreamKey(key: string): boolean {
@@ -76,7 +103,10 @@ export class InstagramAdapter implements PlatformAdapter {
     const trimmed = key.trim();
     if (trimmed.length < 4 || trimmed.length > 256) return false;
     // Disallow unconfigured placeholder keys
-    if (trimmed.startsWith('x-youtube-key-') || trimmed === '••••••••••••••••') {
+    if (
+      trimmed.startsWith('x-youtube-key-') ||
+      trimmed === '••••••••••••••••'
+    ) {
       return false;
     }
     return true;
@@ -101,7 +131,8 @@ export class InstagramAdapter implements PlatformAdapter {
       );
     }
 
-    const streamUrl = options?.customStreamUrl?.trim() || InstagramAdapter.DEFAULT_INGEST_URL;
+    const streamUrl =
+      options?.customStreamUrl?.trim() || InstagramAdapter.DEFAULT_INGEST_URL;
     const streamKey = options?.customStreamKey?.trim();
 
     if (!this.validateIngestUrl(streamUrl)) {
@@ -168,17 +199,136 @@ export class InstagramAdapter implements PlatformAdapter {
     _accessToken: string,
     _platformStreamId: string,
   ): Promise<string | null> {
-    return 'https://www.instagram.com/';
+    // Meta Instagram Live Producer does not provide a direct public broadcast URL
+    return null;
   }
 
-  getViewerUrlForUsername(username?: string): string {
-    if (username) {
-      return `https://www.instagram.com/${username}/live/`;
-    }
-    return 'https://www.instagram.com/';
+  /**
+   * Returns Instagram profile URL for an account username without fabricating any /live/ suffix.
+   */
+  getProfileUrl(username?: string): string | null {
+    if (!username) return null;
+    const clean = username.trim().replace(/^@/, '');
+    return clean ? `https://www.instagram.com/${clean}/` : null;
   }
 
   getProducerUrl(): string {
-    return 'https://www.instagram.com/live/producer';
+    return 'https://www.instagram.com/';
+  }
+
+  /**
+   * Evaluates official Meta Graph API to verify whether an Instagram broadcast is currently live.
+   * If OAuth access token and platformUserId are present, queries GET /{ig-user-id}/live_media.
+   * Safe diagnostics: NEVER logs access tokens or credential parameters.
+   */
+  async checkOfficialLiveStatus(
+    accessToken?: string,
+    platformUserId?: string,
+  ): Promise<{
+    isLive: boolean;
+    liveMediaId?: string;
+    requiresManualConfirmation: boolean;
+    apiPublishSupported: boolean;
+    limitationReason: string;
+    metaResponseError?: string;
+    statusCode?: number;
+    isMockAccount?: boolean;
+  }> {
+    const metaLimitation =
+      "Meta's official Instagram Graph API does not provide a programmatic endpoint to initiate or publish live streams. Desktop broadcasts must be created on Instagram (instagram.com -> Create (+) -> Live video).";
+
+    if (
+      !accessToken ||
+      !platformUserId ||
+      accessToken.startsWith('mock_') ||
+      platformUserId.startsWith('mock_')
+    ) {
+      const isMock = Boolean(
+        accessToken?.startsWith('mock_') || platformUserId?.startsWith('mock_'),
+      );
+      const reason =
+        !accessToken || !platformUserId
+          ? 'No Meta OAuth access credentials linked to this Instagram destination.'
+          : 'Mock OAuth credentials detected (mock_ig_user_101). Real Meta Graph API check bypassed.';
+      console.log(
+        `\x1b[90m[INSTAGRAM_VERIFY] platformUserId=${platformUserId || 'none'} status=UNVERIFIED isMock=${isMock} reason="${reason}"\x1b[0m`,
+      );
+      return {
+        isLive: false,
+        requiresManualConfirmation: true,
+        apiPublishSupported: false,
+        isMockAccount: isMock,
+        limitationReason: `${metaLimitation} (${reason})`,
+        metaResponseError: isMock ? 'MOCK_ACCOUNT_DETECTED' : 'NO_CREDENTIALS',
+      };
+    }
+
+    try {
+      const sanitizedUrl = `https://graph.facebook.com/v22.0/${encodeURIComponent(platformUserId)}/live_media?fields=id,media_type,media_product_type,broadcast_status`;
+      console.log(
+        `\x1b[36m[INSTAGRAM_VERIFY] Querying Meta Graph API endpoint: GET ${sanitizedUrl}\x1b[0m`,
+      );
+
+      const requestUrl = `${sanitizedUrl}&access_token=${encodeURIComponent(accessToken)}`;
+      const res = await fetch(requestUrl, {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      console.log(
+        `\x1b[36m[INSTAGRAM_VERIFY] Meta Graph API response status=${res.status} itemsCount=${Array.isArray(data?.data) ? data.data.length : 0}\x1b[0m`,
+      );
+
+      if (res.ok && Array.isArray(data?.data) && data.data.length > 0) {
+        const liveItem = data.data[0];
+        console.log(
+          `\x1b[32m[INSTAGRAM_VERIFY] Verified LIVE on Instagram! Live Media ID: ${liveItem.id}\x1b[0m`,
+        );
+        return {
+          isLive: true,
+          liveMediaId: liveItem.id,
+          requiresManualConfirmation: false,
+          apiPublishSupported: false,
+          limitationReason: metaLimitation,
+          statusCode: res.status,
+        };
+      }
+
+      const metaErr = data?.error?.message
+        ? String(data.error.message)
+        : undefined;
+      if (metaErr) {
+        console.warn(
+          `\x1b[33m[INSTAGRAM_VERIFY] Meta Graph API returned notice: ${metaErr}\x1b[0m`,
+        );
+      }
+
+      return {
+        isLive: false,
+        requiresManualConfirmation: true,
+        apiPublishSupported: false,
+        limitationReason: metaLimitation,
+        metaResponseError: metaErr,
+        statusCode: res.status,
+      };
+    } catch (fetchErr: any) {
+      const errMsg =
+        fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      console.warn(
+        `\x1b[33m[INSTAGRAM_VERIFY] Meta Graph API connection failed: ${errMsg}\x1b[0m`,
+      );
+      return {
+        isLive: false,
+        requiresManualConfirmation: true,
+        apiPublishSupported: false,
+        limitationReason: metaLimitation,
+        metaResponseError: errMsg,
+      };
+    }
+  }
+
+  getViewerAppNotice(): string {
+    return 'Live broadcasts are viewed from your profile avatar in the Instagram mobile app. Meta does not generate direct web broadcast URLs for Instagram Live Producer streams.';
   }
 }

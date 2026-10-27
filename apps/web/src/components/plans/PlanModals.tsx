@@ -24,17 +24,23 @@ import {
   X,
   Eye,
   Sliders,
-  ShieldCheck,
   Radio,
-  Calendar,
   Layers,
   Users,
   HardDrive,
   Bot,
   Zap,
   Globe,
-  HelpCircle,
   Video,
+  Calendar,
+  Clock,
+  Tag,
+  ShieldCheck,
+  RefreshCw,
+  Plus,
+  Minus,
+  Crown,
+  LayoutGrid,
 } from 'lucide-react';
 
 interface PlanModalProps {
@@ -159,34 +165,50 @@ export function PlanModal({ isOpen, onClose, plan, onSave, isLoading }: PlanModa
     });
   };
 
+  const currencySymbol = formData.currency === 'USD' ? '$' : formData.currency === 'EUR' ? '€' : formData.currency === 'GBP' ? '£' : '₹';
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-gray-950 border-white/10 text-white max-w-4xl max-h-[90vh] overflow-hidden flex flex-col p-0 shadow-2xl">
-        <DialogHeader className="p-6 pb-4 border-b border-white/10 shrink-0">
-          <div className="flex items-center justify-between">
-            <div>
-              <DialogTitle className="text-xl font-bold flex items-center gap-2">
-                {plan ? 'Edit Subscription Plan' : 'Create New Subscription Plan'}
-                {formData.isPopular && (
-                  <Badge className="bg-violet-500/20 text-violet-300 border-violet-500/30 text-[10px]">
-                    <Sparkles className="w-3 h-3 mr-1 text-amber-300" /> Recommended
-                  </Badge>
-                )}
-              </DialogTitle>
-              <DialogDescription className="text-gray-400 text-xs mt-1">
-                Configure plan parameters, feature limits, pricing tiers, and preview the live pricing card.
-              </DialogDescription>
+      <DialogContent className="bg-gray-950 border border-white/10 text-white w-[96vw] max-w-[96vw] sm:max-w-2xl md:max-w-4xl lg:max-w-5xl xl:max-w-6xl max-h-[92vh] overflow-hidden flex flex-col p-0 shadow-2xl rounded-2xl">
+        {/* Modal Header */}
+        <DialogHeader className="p-4 sm:p-6 pb-4 border-b border-white/10 shrink-0 bg-white/[0.02]">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-600/30 to-indigo-600/10 border border-violet-500/30 flex items-center justify-center shrink-0 text-violet-400 shadow-inner">
+                <Crown className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <DialogTitle className="text-lg sm:text-xl font-bold tracking-tight text-white">
+                    {plan ? 'Edit Subscription Plan' : 'Create New Subscription Plan'}
+                  </DialogTitle>
+                  {formData.isPopular && (
+                    <Badge className="bg-gradient-to-r from-violet-600 to-indigo-600 text-white border-0 text-[10px] font-semibold px-2 py-0.5">
+                      <Sparkles className="w-3 h-3 mr-1 text-amber-300" /> Recommended Tier
+                    </Badge>
+                  )}
+                  {formData.code && (
+                    <Badge variant="outline" className="border-white/15 text-gray-400 font-mono text-[10px] hidden sm:inline-flex">
+                      slug: {formData.code}
+                    </Badge>
+                  )}
+                </div>
+                <DialogDescription className="text-gray-400 text-xs mt-1">
+                  Configure plan entitlements, resource limits, and preview the live customer pricing card.
+                </DialogDescription>
+              </div>
             </div>
 
-            {/* Tab Switcher */}
-            <div className="flex items-center bg-white/5 border border-white/10 rounded-lg p-1">
+            {/* Mobile / Tablet Tab Switcher */}
+            <div className="flex items-center bg-white/5 border border-white/10 rounded-xl p-1 self-start sm:self-auto shrink-0 lg:hidden">
               <button
                 type="button"
                 onClick={() => setActiveTab('config')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${activeTab === 'config'
-                    ? 'bg-violet-600 text-white shadow-sm'
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                  activeTab === 'config'
+                    ? 'bg-violet-600 text-white shadow-md'
                     : 'text-gray-400 hover:text-white'
-                  }`}
+                }`}
               >
                 <Sliders className="w-3.5 h-3.5" />
                 Configure
@@ -194,10 +216,11 @@ export function PlanModal({ isOpen, onClose, plan, onSave, isLoading }: PlanModa
               <button
                 type="button"
                 onClick={() => setActiveTab('preview')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${activeTab === 'preview'
-                    ? 'bg-violet-600 text-white shadow-sm'
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                  activeTab === 'preview'
+                    ? 'bg-violet-600 text-white shadow-md'
                     : 'text-gray-400 hover:text-white'
-                  }`}
+                }`}
               >
                 <Eye className="w-3.5 h-3.5" />
                 Live Preview
@@ -206,363 +229,476 @@ export function PlanModal({ isOpen, onClose, plan, onSave, isLoading }: PlanModa
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto p-6">
-          {activeTab === 'preview' ? (
-            <div className="max-w-md mx-auto py-4">
-              <div className="mb-4 text-center">
-                <span className="text-xs text-muted-foreground uppercase tracking-widest font-mono">
-                  Live Card Appearance Preview
-                </span>
-              </div>
-              <PlanCardPreview plan={formData} />
-            </div>
-          ) : (
-            <form id="plan-form" onSubmit={handleSubmit} className="space-y-8">
-              {/* Basic Information */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                  <h3 className="text-sm font-semibold uppercase tracking-wider text-violet-400 flex items-center gap-2">
-                    <Layers className="w-4 h-4" /> Basic Information
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    <label htmlFor="isPopularSwitch" className="text-xs text-gray-300 font-medium cursor-pointer">
-                      Mark as Recommended / Popular
-                    </label>
-                    <input
-                      id="isPopularSwitch"
-                      type="checkbox"
-                      checked={!!formData.isPopular}
-                      onChange={e => handleChange('isPopular', e.target.checked)}
-                      className="w-4 h-4 accent-violet-600 rounded cursor-pointer"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Plan Name *</Label>
-                    <Input
-                      required
-                      placeholder="e.g. Starter, Professional, Growth"
-                      value={formData.name || ''}
-                      onChange={e => handleNameChange(e.target.value)}
-                      className="bg-white/5 border-white/10 text-white text-sm"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs">Plan Code / Slug *</Label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCodeAutoGenerated(true);
-                          if (formData.name) handleChange('code', slugify(formData.name));
-                        }}
-                        className="text-[10px] text-violet-400 hover:underline"
-                      >
-                        Auto-generate
-                      </button>
+        {/* Modal Scrollable Body */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+          <form id="plan-form" onSubmit={handleSubmit}>
+            {/* Desktop Side-by-Side Grid vs Mobile Tabbed View */}
+            <div className="lg:grid lg:grid-cols-12 lg:gap-8 items-start">
+              {/* Left Column: Form Configuration */}
+              <div
+                className={`space-y-6 lg:col-span-7 xl:col-span-7 ${
+                  activeTab === 'preview' ? 'hidden lg:block' : 'block'
+                }`}
+              >
+                {/* 1. Basic Plan Identity Card */}
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 sm:p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                    <div className="flex items-center gap-2">
+                      <Layers className="w-4 h-4 text-violet-400" />
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-violet-400">
+                        Plan Identity & Visibility
+                      </h3>
                     </div>
-                    <Input
-                      required
-                      placeholder="e.g. starter, professional-monthly"
-                      value={formData.code || ''}
-                      onChange={e => {
-                        setCodeAutoGenerated(false);
-                        handleChange('code', slugify(e.target.value));
-                      }}
-                      className="bg-white/5 border-white/10 text-white font-mono text-sm"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5 md:col-span-2">
-                    <Label className="text-xs">Short Description</Label>
-                    <Input
-                      placeholder="e.g. For growing creators and teams expanding across platforms."
-                      value={formData.description || ''}
-                      onChange={e => handleChange('description', e.target.value)}
-                      className="bg-white/5 border-white/10 text-white text-sm"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Display Order</Label>
-                    <Input
-                      type="number"
-                      placeholder="0"
-                      value={formData.displayOrder ?? 0}
-                      onChange={e => handleChange('displayOrder', Number(e.target.value))}
-                      className="bg-white/5 border-white/10 text-white text-sm"
-                    />
-                    <p className="text-[10px] text-gray-500">Lower numbers appear first on the pricing page.</p>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Billing Type</Label>
-                    <Select
-                      value={formData.billingType || 'RECURRING'}
-                      onValueChange={v => handleChange('billingType', v as BillingType)}
-                    >
-                      <SelectTrigger className="bg-white/5 border-white/10 text-white text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-gray-900 border-gray-800 text-white">
-                        <SelectItem value="RECURRING">Recurring Subscription</SelectItem>
-                        <SelectItem value="ONE_TIME">One-Time Billing Pass</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Pricing & Duration */}
-              <div className="space-y-4">
-                <div className="border-b border-white/10 pb-2">
-                  <h3 className="text-sm font-semibold uppercase tracking-wider text-emerald-400 flex items-center gap-2">
-                    <Zap className="w-4 h-4" /> Pricing & Billing Cycle
-                  </h3>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Price (Amount) *</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-mono text-sm">
-                        {formData.currency === 'USD' ? '$' : '₹'}
+                    <label className="flex items-center gap-2 cursor-pointer group select-none">
+                      <span className="text-xs text-gray-300 font-medium group-hover:text-white transition-colors">
+                        Mark as Popular / Recommended
                       </span>
+                      <input
+                        type="checkbox"
+                        checked={!!formData.isPopular}
+                        onChange={e => handleChange('isPopular', e.target.checked)}
+                        className="w-4 h-4 accent-violet-600 rounded cursor-pointer"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-gray-200">Plan Name *</Label>
                       <Input
                         required
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="999"
-                        value={formData.price ?? 0}
-                        onChange={e => handleChange('price', Number(e.target.value))}
-                        className="bg-white/5 border-white/10 text-white pl-8 font-mono text-sm"
+                        placeholder="e.g. Starter, Professional, Growth"
+                        value={formData.name || ''}
+                        onChange={e => handleNameChange(e.target.value)}
+                        className="bg-black/40 border-white/10 text-white text-sm focus:border-violet-500 h-9"
                       />
                     </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-medium text-gray-200">Plan Code / Slug *</Label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCodeAutoGenerated(true);
+                            if (formData.name) handleChange('code', slugify(formData.name));
+                          }}
+                          className="text-[11px] text-violet-400 hover:text-violet-300 hover:underline flex items-center gap-1"
+                        >
+                          <RefreshCw className="w-3 h-3" /> Auto-generate
+                        </button>
+                      </div>
+                      <Input
+                        required
+                        placeholder="e.g. starter, professional-monthly"
+                        value={formData.code || ''}
+                        onChange={e => {
+                          setCodeAutoGenerated(false);
+                          handleChange('code', slugify(e.target.value));
+                        }}
+                        className="bg-black/40 border-white/10 text-white font-mono text-sm focus:border-violet-500 h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs font-medium text-gray-200">Short Description / Subtitle</Label>
+                      <Input
+                        placeholder="e.g. Best suited for emerging creators and growing social agencies."
+                        value={formData.description || ''}
+                        onChange={e => handleChange('description', e.target.value)}
+                        className="bg-black/40 border-white/10 text-white text-sm focus:border-violet-500 h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-gray-200">Display Order</Label>
+                      <Input
+                        type="number"
+                        placeholder="0"
+                        value={formData.displayOrder ?? 0}
+                        onChange={e => handleChange('displayOrder', Number(e.target.value))}
+                        className="bg-black/40 border-white/10 text-white text-sm focus:border-violet-500 h-9"
+                      />
+                      <p className="text-[10px] text-gray-500">Lower order appears first on the pricing comparison table.</p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-gray-200">Billing Type</Label>
+                      <Select
+                        value={formData.billingType || 'RECURRING'}
+                        onValueChange={v => handleChange('billingType', v as BillingType)}
+                      >
+                        <SelectTrigger className="bg-black/40 border-white/10 text-white text-sm h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-gray-900 border-gray-800 text-white">
+                          <SelectItem value="RECURRING">Recurring Subscription</SelectItem>
+                          <SelectItem value="ONE_TIME">One-Time Billing Pass</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Pricing & Duration Card */}
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 sm:p-5 space-y-4">
+                  <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                    <Zap className="w-4 h-4 text-emerald-400" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                      Pricing & Billing Interval
+                    </h3>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Currency</Label>
-                    <Select
-                      value={formData.currency || 'INR'}
-                      onValueChange={v => handleChange('currency', v)}
-                    >
-                      <SelectTrigger className="bg-white/5 border-white/10 text-white text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-gray-900 border-gray-800 text-white">
-                        <SelectItem value="INR">INR (₹ Indian Rupee)</SelectItem>
-                        <SelectItem value="USD">USD ($ US Dollar)</SelectItem>
-                      </SelectContent>
-                    </Select>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-gray-200">Price Amount *</Label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-400 font-mono font-bold text-sm">
+                          {currencySymbol}
+                        </span>
+                        <Input
+                          required
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="999"
+                          value={formData.price ?? 0}
+                          onChange={e => handleChange('price', Number(e.target.value))}
+                          className="bg-black/40 border-white/10 text-white pl-8 font-mono text-sm focus:border-emerald-500 h-9"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-gray-200">Currency</Label>
+                      <Select
+                        value={formData.currency || 'INR'}
+                        onValueChange={v => handleChange('currency', v)}
+                      >
+                        <SelectTrigger className="bg-black/40 border-white/10 text-white text-sm h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-gray-900 border-gray-800 text-white">
+                          <SelectItem value="INR">INR (₹ Indian Rupee)</SelectItem>
+                          <SelectItem value="USD">USD ($ US Dollar)</SelectItem>
+                          <SelectItem value="EUR">EUR (€ Euro)</SelectItem>
+                          <SelectItem value="GBP">GBP (£ British Pound)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium text-gray-200">Billing Interval</Label>
+                      <Select
+                        value={formData.billingCycle || 'MONTHLY'}
+                        onValueChange={v => {
+                          handleChange('billingCycle', v as BillingCycle);
+                          if (v === 'MONTHLY') handleChange('durationDays', 30);
+                          if (v === 'QUARTERLY') handleChange('durationDays', 90);
+                          if (v === 'YEARLY') handleChange('durationDays', 365);
+                        }}
+                      >
+                        <SelectTrigger className="bg-black/40 border-white/10 text-white text-sm h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-gray-900 border-gray-800 text-white">
+                          <SelectItem value="MONTHLY">Monthly (30 Days)</SelectItem>
+                          <SelectItem value="QUARTERLY">Quarterly (90 Days)</SelectItem>
+                          <SelectItem value="YEARLY">Yearly (365 Days)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5 sm:col-span-3">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-medium text-gray-200">Plan Validity (Days)</Label>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleChange('durationDays', 30)}
+                            className="px-2 py-0.5 rounded text-[10px] bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                          >
+                            30d
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleChange('durationDays', 90)}
+                            className="px-2 py-0.5 rounded text-[10px] bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                          >
+                            90d
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleChange('durationDays', 365)}
+                            className="px-2 py-0.5 rounded text-[10px] bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+                          >
+                            365d
+                          </button>
+                        </div>
+                      </div>
+                      <Input
+                        type="number"
+                        min="1"
+                        placeholder="e.g. 30, 90, 365"
+                        value={formData.durationDays ?? ''}
+                        onChange={e => handleChange('durationDays', e.target.value ? Number(e.target.value) : null)}
+                        className="bg-black/40 border-white/10 text-white text-sm focus:border-emerald-500 h-9"
+                      />
+                      <p className="text-[10px] text-gray-500">
+                        Exact active duration applied upon payment confirmation.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Resource & Capacity Limits Card */}
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 sm:p-5 space-y-4">
+                  <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                    <Users className="w-4 h-4 text-cyan-400" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-cyan-400">
+                      Capacity & Resource Limits
+                    </h3>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Billing Interval</Label>
-                    <Select
-                      value={formData.billingCycle || 'MONTHLY'}
-                      onValueChange={v => {
-                        handleChange('billingCycle', v as BillingCycle);
-                        if (v === 'MONTHLY') handleChange('durationDays', 30);
-                        if (v === 'QUARTERLY') handleChange('durationDays', 90);
-                        if (v === 'YEARLY') handleChange('durationDays', 365);
-                      }}
-                    >
-                      <SelectTrigger className="bg-white/5 border-white/10 text-white text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-gray-900 border-gray-800 text-white">
-                        <SelectItem value="MONTHLY">Monthly</SelectItem>
-                        <SelectItem value="QUARTERLY">Quarterly (3 Months)</SelectItem>
-                        <SelectItem value="YEARLY">Yearly (12 Months)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1.5 md:col-span-3">
-                    <Label className="text-xs">Validity Period (Days)</Label>
-                    <Input
-                      type="number"
-                      min="1"
-                      placeholder="e.g. 30, 90, 365"
-                      value={formData.durationDays ?? ''}
-                      onChange={e => handleChange('durationDays', e.target.value ? Number(e.target.value) : null)}
-                      className="bg-white/5 border-white/10 text-white text-sm"
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    {/* Social Accounts */}
+                    <LimitInputField
+                      icon={<Globe className="w-3.5 h-3.5 text-cyan-400" />}
+                      label="Social Accounts Limit"
+                      value={formData.socialAccountLimit ?? 3}
+                      onChange={val => handleChange('socialAccountLimit', val)}
+                      onToggleUnlimited={unlim => handleLimitChange('socialAccountLimit', unlim, 5)}
+                      helpText="Total connected accounts across platforms."
                     />
-                    <p className="text-[10px] text-gray-500">
-                      Calculates the exact entitlement expiry date upon payment completion. Leave blank to inherit interval defaults.
+
+                    {/* Workspaces */}
+                    <LimitInputField
+                      icon={<Layers className="w-3.5 h-3.5 text-cyan-400" />}
+                      label="Workspace Limit"
+                      value={formData.workspaceLimit ?? 1}
+                      onChange={val => handleChange('workspaceLimit', val)}
+                      onToggleUnlimited={unlim => handleLimitChange('workspaceLimit', unlim, 3)}
+                      helpText="Max dedicated workspaces user can create."
+                    />
+
+                    {/* Team Members */}
+                    <LimitInputField
+                      icon={<Users className="w-3.5 h-3.5 text-cyan-400" />}
+                      label="Team Members / Seats"
+                      value={formData.teamMemberLimit ?? 1}
+                      onChange={val => handleChange('teamMemberLimit', val)}
+                      onToggleUnlimited={unlim => handleLimitChange('teamMemberLimit', unlim, 5)}
+                      helpText="Collaborators allowed across workspaces."
+                    />
+
+                    {/* Media Storage */}
+                    <LimitInputField
+                      icon={<HardDrive className="w-3.5 h-3.5 text-cyan-400" />}
+                      label="Cloud Storage Limit (GB)"
+                      value={formData.storageLimit ?? 5}
+                      onChange={val => handleChange('storageLimit', val)}
+                      onToggleUnlimited={unlim => handleLimitChange('storageLimit', unlim, 50)}
+                      helpText="Media assets and recordings quota."
+                    />
+
+                    {/* Live Streams */}
+                    <LimitInputField
+                      icon={<Video className="w-3.5 h-3.5 text-cyan-400" />}
+                      label="Live Streams / Monthly"
+                      value={formData.liveStreamLimit ?? 0}
+                      onChange={val => handleChange('liveStreamLimit', val)}
+                      onToggleUnlimited={unlim => handleLimitChange('liveStreamLimit', unlim, 100)}
+                      helpText="Active broadcasts quota. Set to 0 if disabled."
+                    />
+
+                    {/* Scheduled Posts */}
+                    <LimitInputField
+                      icon={<Calendar className="w-3.5 h-3.5 text-cyan-400" />}
+                      label="Max Scheduled Posts Queue"
+                      value={formData.maxScheduledPosts ?? 50}
+                      onChange={val => handleChange('maxScheduledPosts', val)}
+                      onToggleUnlimited={unlim => handleLimitChange('maxScheduledPosts', unlim, 200)}
+                      helpText="Queue capacity for automated publishing."
+                    />
+
+                    {/* AI Credits */}
+                    <LimitInputField
+                      icon={<Bot className="w-3.5 h-3.5 text-cyan-400" />}
+                      label="AI Operations / Month"
+                      value={formData.aiLimit ?? 100}
+                      onChange={val => handleChange('aiLimit', val)}
+                      onToggleUnlimited={unlim => handleLimitChange('aiLimit', unlim, 500)}
+                      helpText="AI caption generator and hashtag tools quota."
+                    />
+
+                    {/* Support Tier */}
+                    <div className="p-3 rounded-xl bg-black/40 border border-white/10 space-y-2 flex flex-col justify-between">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+                        <Label className="text-xs font-semibold text-white">Customer Support SLA</Label>
+                      </div>
+                      <Select
+                        value={formData.support || 'STANDARD'}
+                        onValueChange={v => handleChange('support', v)}
+                      >
+                        <SelectTrigger className="bg-white/5 border-white/10 text-white text-xs h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-gray-900 border-gray-800 text-white">
+                          <SelectItem value="STANDARD">Standard Community Support</SelectItem>
+                          <SelectItem value="PRIORITY">Priority Email & Chat Support</SelectItem>
+                          <SelectItem value="PREMIUM">24/7 Dedicated Account Manager</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-[10px] text-gray-500">Service response time guarantee.</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Feature Capabilities Matrix Card */}
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 sm:p-5 space-y-4">
+                  <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                    <Radio className="w-4 h-4 text-amber-400" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                      Feature Capabilities & Entitlements
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <FeatureToggleCard
+                      title="Live Streaming Broadcasts"
+                      description="Enables RTMP streaming & Studio integration."
+                      checked={!!formData.liveStreaming}
+                      onChange={checked => {
+                        handleChange('liveStreaming', checked);
+                        if (checked && (!formData.liveStreamLimit || formData.liveStreamLimit === 0)) {
+                          handleChange('liveStreamLimit', 50);
+                        }
+                      }}
+                    />
+                    <FeatureToggleCard
+                      title="Multi-Platform Streaming"
+                      description="Simulcast streams to YouTube, FB, IG simultaneously."
+                      checked={!!formData.multiPlatformStreaming}
+                      onChange={checked => handleChange('multiPlatformStreaming', checked)}
+                    />
+                    <FeatureToggleCard
+                      title="Content Scheduling"
+                      description="Automated posting queue & calendar planner."
+                      checked={!!formData.scheduling}
+                      onChange={checked => handleChange('scheduling', checked)}
+                    />
+                    <FeatureToggleCard
+                      title="AI Copilot & Caption Generator"
+                      description="AI text generation, hashtags & post suggestions."
+                      checked={!!formData.aiFeatures}
+                      onChange={checked => handleChange('aiFeatures', checked)}
+                    />
+                    <FeatureToggleCard
+                      title="Performance Analytics"
+                      description="Audience growth tracking & metrics dashboard."
+                      checked={!!formData.analytics}
+                      onChange={checked => handleChange('analytics', checked)}
+                    />
+                    <FeatureToggleCard
+                      title="Media Asset Library"
+                      description="Cloud storage and media tagging system."
+                      checked={formData.mediaLibrary ?? true}
+                      onChange={checked => handleChange('mediaLibrary', checked)}
+                    />
+                    <FeatureToggleCard
+                      title="Developer API & Webhooks"
+                      description="Programmatic REST API keys and webhooks."
+                      checked={!!formData.apiAccess}
+                      onChange={checked => handleChange('apiAccess', checked)}
+                    />
+                    <FeatureToggleCard
+                      title="Custom White-label Branding"
+                      description="Custom workspace branding & report watermarks."
+                      checked={!!formData.customBranding}
+                      onChange={checked => handleChange('customBranding', checked)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Sticky Live Customer Card Preview (Always visible on lg:) */}
+              <div
+                className={`lg:col-span-5 xl:col-span-5 ${
+                  activeTab === 'config' ? 'hidden lg:block' : 'block'
+                }`}
+              >
+                <div className="sticky top-0 space-y-4">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                    <div className="flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-violet-400" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-gray-300">
+                        Live Pricing Card Preview
+                      </span>
+                    </div>
+                    <Badge variant="outline" className="text-[10px] border-white/15 text-gray-400 font-mono">
+                      Real-time Sync
+                    </Badge>
+                  </div>
+
+                  <div className="py-2">
+                    <PlanCardPreview plan={formData} />
+                  </div>
+
+                  {/* Summary Info Pill */}
+                  <div className="p-3 rounded-xl bg-violet-950/20 border border-violet-500/20 text-xs text-gray-300 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-violet-300">
+                      <span>Live Entitlements Summary</span>
+                      <span>{formData.billingType === 'ONE_TIME' ? 'One-time Pass' : 'Recurring'}</span>
+                    </div>
+                    <p className="text-[11px] text-gray-400 leading-relaxed">
+                      Changes made in this modal immediately reflect how customers see this plan on the public pricing page.
                     </p>
                   </div>
                 </div>
               </div>
-
-              {/* Resource Limits with explicit Unlimited (-1) */}
-              <div className="space-y-4">
-                <div className="border-b border-white/10 pb-2">
-                  <h3 className="text-sm font-semibold uppercase tracking-wider text-cyan-400 flex items-center gap-2">
-                    <Users className="w-4 h-4" /> Capacity & Resource Limits
-                  </h3>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Social Accounts */}
-                  <LimitInputField
-                    label="Social Accounts Limit"
-                    value={formData.socialAccountLimit ?? 3}
-                    onChange={val => handleChange('socialAccountLimit', val)}
-                    onToggleUnlimited={unlim => handleLimitChange('socialAccountLimit', unlim, 5)}
-                    helpText="Max connected social channels across all workspaces."
-                  />
-
-                  {/* Workspaces */}
-                  <LimitInputField
-                    label="Workspace Limit"
-                    value={formData.workspaceLimit ?? 1}
-                    onChange={val => handleChange('workspaceLimit', val)}
-                    onToggleUnlimited={unlim => handleLimitChange('workspaceLimit', unlim, 3)}
-                    helpText="Max dedicated workspaces user can create."
-                  />
-
-                  {/* Team Members */}
-                  <LimitInputField
-                    label="Team Members / Seats"
-                    value={formData.teamMemberLimit ?? 1}
-                    onChange={val => handleChange('teamMemberLimit', val)}
-                    onToggleUnlimited={unlim => handleLimitChange('teamMemberLimit', unlim, 5)}
-                    helpText="Max collaborators across workspaces."
-                  />
-
-                  {/* Storage */}
-                  <LimitInputField
-                    label="Media Storage Limit (GB)"
-                    value={formData.storageLimit ?? 5}
-                    onChange={val => handleChange('storageLimit', val)}
-                    onToggleUnlimited={unlim => handleLimitChange('storageLimit', unlim, 50)}
-                    helpText="Max asset storage for media library."
-                  />
-
-                  {/* Max Streams */}
-                  <LimitInputField
-                    label="Max Livestreams / Concurrent"
-                    value={formData.liveStreamLimit ?? 0}
-                    onChange={val => handleChange('liveStreamLimit', val)}
-                    onToggleUnlimited={unlim => handleLimitChange('liveStreamLimit', unlim, 100)}
-                    helpText="Max active/monthly livestreams. Set to 0 if live streaming disabled."
-                  />
-
-                  {/* Scheduled Posts */}
-                  <LimitInputField
-                    label="Max Scheduled Posts"
-                    value={formData.maxScheduledPosts ?? 50}
-                    onChange={val => handleChange('maxScheduledPosts', val)}
-                    onToggleUnlimited={unlim => handleLimitChange('maxScheduledPosts', unlim, 200)}
-                    helpText="Active queue size for scheduled content."
-                  />
-
-                  {/* AI Credits */}
-                  <LimitInputField
-                    label="AI Credits / Operations"
-                    value={formData.aiLimit ?? 100}
-                    onChange={val => handleChange('aiLimit', val)}
-                    onToggleUnlimited={unlim => handleLimitChange('aiLimit', unlim, 500)}
-                    helpText="Monthly quota for AI caption generator, hashtag & suggestions."
-                  />
-
-                  {/* Support Level */}
-                  <div className="space-y-1.5 p-3 rounded-lg bg-white/5 border border-white/10">
-                    <Label className="text-xs font-medium">Customer Support Level</Label>
-                    <Select
-                      value={formData.support || 'STANDARD'}
-                      onValueChange={v => handleChange('support', v)}
-                    >
-                      <SelectTrigger className="bg-black/40 border-white/10 text-white text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-gray-900 border-gray-800 text-white">
-                        <SelectItem value="STANDARD">Standard Community Support</SelectItem>
-                        <SelectItem value="PRIORITY">Priority Email & Chat Support</SelectItem>
-                        <SelectItem value="PREMIUM">24/7 Dedicated Account Manager</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Feature Toggles */}
-              <div className="space-y-4">
-                <div className="border-b border-white/10 pb-2">
-                  <h3 className="text-sm font-semibold uppercase tracking-wider text-amber-400 flex items-center gap-2">
-                    <Radio className="w-4 h-4" /> Feature Capabilities
-                  </h3>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  <FeatureCheckbox
-                    label="Live Streaming"
-                    checked={!!formData.liveStreaming}
-                    onChange={checked => {
-                      handleChange('liveStreaming', checked);
-                      if (checked && (!formData.liveStreamLimit || formData.liveStreamLimit === 0)) {
-                        handleChange('liveStreamLimit', 50);
-                      }
-                    }}
-                  />
-                  <FeatureCheckbox
-                    label="Multi-Platform Streaming"
-                    checked={!!formData.multiPlatformStreaming}
-                    onChange={checked => handleChange('multiPlatformStreaming', checked)}
-                  />
-                  <FeatureCheckbox
-                    label="Content Scheduling"
-                    checked={!!formData.scheduling}
-                    onChange={checked => handleChange('scheduling', checked)}
-                  />
-                  <FeatureCheckbox
-                    label="AI Copilot & Tools"
-                    checked={!!formData.aiFeatures}
-                    onChange={checked => handleChange('aiFeatures', checked)}
-                  />
-                  <FeatureCheckbox
-                    label="Analytics Dashboard"
-                    checked={!!formData.analytics}
-                    onChange={checked => handleChange('analytics', checked)}
-                  />
-                  <FeatureCheckbox
-                    label="Media Library"
-                    checked={formData.mediaLibrary ?? true}
-                    onChange={checked => handleChange('mediaLibrary', checked)}
-                  />
-                  <FeatureCheckbox
-                    label="Developer API Access"
-                    checked={!!formData.apiAccess}
-                    onChange={checked => handleChange('apiAccess', checked)}
-                  />
-                  <FeatureCheckbox
-                    label="Custom Branding / White-label"
-                    checked={!!formData.customBranding}
-                    onChange={checked => handleChange('customBranding', checked)}
-                  />
-                </div>
-              </div>
-            </form>
-          )}
+            </div>
+          </form>
         </div>
 
-        <DialogFooter className="p-4 border-t border-white/10 bg-black/40 shrink-0">
-          <Button type="button" variant="ghost" onClick={onClose} disabled={isLoading} className="text-xs">
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            form="plan-form"
-            disabled={isLoading}
-            className="bg-violet-600 hover:bg-violet-700 text-white text-xs px-6 font-semibold"
-          >
-            {isLoading ? 'Saving...' : plan ? 'Update Plan' : 'Create & Publish Plan'}
-          </Button>
+        {/* Modal Sticky Footer */}
+        <DialogFooter className="p-4 sm:p-5 border-t border-white/10 bg-black/60 backdrop-blur-md shrink-0 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="text-xs text-gray-400 flex items-center gap-2 self-start sm:self-auto">
+            <span className="font-semibold text-white">{formData.name || 'Untitled Plan'}</span>
+            <span>•</span>
+            <span className="font-mono text-emerald-400 font-bold">{currencySymbol}{formData.price ?? 0}</span>
+            <span>/</span>
+            <span className="text-gray-400">{formData.billingCycle?.toLowerCase() || 'monthly'}</span>
+          </div>
+
+          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={onClose}
+              disabled={isLoading}
+              className="text-xs text-gray-400 hover:text-white hover:bg-white/5 h-9 px-4"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="plan-form"
+              disabled={isLoading}
+              className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs font-semibold px-6 h-9 shadow-lg shadow-violet-600/20"
+            >
+              {isLoading ? (
+                <div className="flex items-center gap-2">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Saving Plan...</span>
+                </div>
+              ) : plan ? (
+                'Update Plan'
+              ) : (
+                'Create & Publish Plan'
+              )}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -570,15 +706,17 @@ export function PlanModal({ isOpen, onClose, plan, onSave, isLoading }: PlanModa
 }
 
 /**
- * Individual reusable Limit input with explicit "Unlimited" checkbox
+ * Limit input card with Unlimited toggle, custom step controls, and clear styling
  */
 function LimitInputField({
+  icon,
   label,
   value,
   onChange,
   onToggleUnlimited,
   helpText,
 }: {
+  icon?: React.ReactNode;
   label: string;
   value: number;
   onChange: (val: number) => void;
@@ -587,31 +725,65 @@ function LimitInputField({
 }) {
   const isUnlimited = value === -1;
 
+  const handleIncrement = () => {
+    if (isUnlimited) return;
+    onChange((value || 0) + 1);
+  };
+
+  const handleDecrement = () => {
+    if (isUnlimited) return;
+    onChange(Math.max(0, (value || 0) - 1));
+  };
+
   return (
-    <div className="p-3 rounded-lg bg-white/5 border border-white/10 space-y-2">
+    <div className="p-3 rounded-xl bg-black/40 border border-white/10 space-y-2 hover:border-white/20 transition-all">
       <div className="flex items-center justify-between">
-        <Label className="text-xs font-medium text-white">{label}</Label>
-        <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-violet-400 select-none">
+        <div className="flex items-center gap-1.5">
+          {icon}
+          <Label className="text-xs font-medium text-gray-200">{label}</Label>
+        </div>
+        <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-violet-400 hover:text-violet-300 select-none">
           <input
             type="checkbox"
             checked={isUnlimited}
             onChange={e => onToggleUnlimited(e.target.checked)}
             className="w-3.5 h-3.5 accent-violet-600 rounded cursor-pointer"
           />
-          <span>Unlimited (∞)</span>
+          <span className="font-semibold">Unlimited (∞)</span>
         </label>
       </div>
 
       <div className="flex items-center gap-2">
-        <Input
-          type="number"
-          min="0"
-          disabled={isUnlimited}
-          value={isUnlimited ? '' : value}
-          placeholder={isUnlimited ? 'Unlimited (-1)' : '0'}
-          onChange={e => onChange(Number(e.target.value))}
-          className="bg-black/40 border-white/10 text-white font-mono text-xs disabled:opacity-50 disabled:bg-violet-500/10 disabled:text-violet-300"
-        />
+        <div className="relative flex-1">
+          <Input
+            type="number"
+            min="0"
+            disabled={isUnlimited}
+            value={isUnlimited ? '' : value}
+            placeholder={isUnlimited ? 'Unlimited (∞)' : '0'}
+            onChange={e => onChange(Number(e.target.value))}
+            className="bg-white/5 border-white/10 text-white font-mono text-xs disabled:opacity-70 disabled:bg-violet-950/20 disabled:text-violet-300 disabled:border-violet-500/30 h-8"
+          />
+        </div>
+
+        {!isUnlimited && (
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={handleDecrement}
+              className="w-7 h-7 rounded bg-white/5 hover:bg-white/10 text-gray-300 flex items-center justify-center transition-colors text-xs"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              onClick={handleIncrement}
+              className="w-7 h-7 rounded bg-white/5 hover:bg-white/10 text-gray-300 flex items-center justify-center transition-colors text-xs"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          </div>
+        )}
       </div>
 
       {helpText && <p className="text-[10px] text-gray-500 leading-tight">{helpText}</p>}
@@ -620,27 +792,229 @@ function LimitInputField({
 }
 
 /**
- * Reusable checkbox for feature toggles
+ * Feature card toggle with glowing active state
  */
-function FeatureCheckbox({
-  label,
+function FeatureToggleCard({
+  title,
+  description,
   checked,
   onChange,
 }: {
-  label: string;
+  title: string;
+  description: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-center gap-2.5 p-3 rounded-lg bg-white/5 border border-white/10 hover:border-violet-500/30 cursor-pointer transition-all select-none">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={e => onChange(e.target.checked)}
-        className="w-4 h-4 accent-violet-600 rounded cursor-pointer"
-      />
-      <span className="text-xs font-medium text-gray-200">{label}</span>
-    </label>
+    <div
+      onClick={() => onChange(!checked)}
+      className={`p-3 rounded-xl border transition-all cursor-pointer select-none flex items-start gap-3 ${
+        checked
+          ? 'bg-violet-950/20 border-violet-500/40 text-white shadow-sm'
+          : 'bg-black/40 border-white/10 text-gray-400 hover:border-white/20'
+      }`}
+    >
+      <div
+        className={`w-5 h-5 rounded-md flex items-center justify-center mt-0.5 shrink-0 transition-colors ${
+          checked ? 'bg-violet-600 text-white' : 'bg-white/10 text-transparent'
+        }`}
+      >
+        <Check className="w-3.5 h-3.5 stroke-[3]" />
+      </div>
+      <div className="space-y-0.5">
+        <h4 className={`text-xs font-semibold ${checked ? 'text-white' : 'text-gray-300'}`}>
+          {title}
+        </h4>
+        <p className="text-[10px] text-gray-500 leading-tight">{description}</p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Visual preview component rendering the card exactly as users see it
+ */
+export function PlanCardPreview({ plan }: { plan: Partial<AdminPlan> }) {
+  const isRecommended = !!plan.isPopular;
+  const price = Number(plan.price) || 0;
+  const currencySymbol =
+    plan.currency === 'USD' ? '$' : plan.currency === 'EUR' ? '€' : plan.currency === 'GBP' ? '£' : '₹';
+
+  const formatLimit = (limit: number | undefined | null, unit: string) => {
+    if (limit === -1) return `Unlimited ${unit}`;
+    if (!limit || limit === 0) return `0 ${unit}`;
+    return `Up to ${limit.toLocaleString()} ${unit}`;
+  };
+
+  return (
+    <div
+      className={`p-5 sm:p-6 rounded-2xl relative flex flex-col justify-between space-y-5 border transition-all duration-300 ${
+        isRecommended
+          ? 'border-violet-500 shadow-2xl shadow-violet-500/20 bg-gradient-to-b from-gray-900 to-gray-950 z-20 ring-1 ring-violet-500/50'
+          : 'border-white/10 bg-black/60'
+      }`}
+    >
+      {/* Recommended Ribbon */}
+      {isRecommended && (
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 text-white text-[10px] uppercase font-mono font-black tracking-widest px-3.5 py-0.5 rounded-full shadow-lg flex items-center gap-1.5">
+          <Sparkles className="w-3 h-3 text-amber-300" />
+          <span>RECOMMENDED</span>
+        </div>
+      )}
+
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h3 className="text-xl sm:text-2xl font-black tracking-tight text-white">
+              {plan.name || 'Untitled Plan'}
+            </h3>
+            {plan.code && (
+              <span className="text-[10px] font-mono uppercase text-gray-400 tracking-wider">
+                {plan.code}
+              </span>
+            )}
+          </div>
+          {isRecommended && (
+            <Badge className="bg-violet-500/20 text-violet-300 border-violet-500/30 text-[10px]">
+              Popular Tier
+            </Badge>
+          )}
+        </div>
+
+        <p className="text-xs text-gray-400 leading-relaxed line-clamp-2">
+          {plan.description || 'Complete NexaSocial social media broadcast & content management suite.'}
+        </p>
+
+        {/* Pricing Display */}
+        <div className="flex items-baseline gap-1 pt-1 border-t border-white/10">
+          <span className="text-3xl sm:text-4xl font-black font-mono text-white">
+            {price <= 0 ? `${currencySymbol}0` : `${currencySymbol}${price.toLocaleString()}`}
+          </span>
+          {price > 0 && (
+            <span className="text-xs text-gray-400 font-mono">
+              /{plan.billingCycle === 'YEARLY' ? 'year' : plan.billingCycle === 'QUARTERLY' ? 'quarter' : 'mo'}
+            </span>
+          )}
+          {plan.durationDays && plan.durationDays > 0 && (
+            <span className="text-[10px] text-gray-500 font-mono ml-1">
+              ({plan.durationDays} days)
+            </span>
+          )}
+        </div>
+
+        {/* Feature Lists & Limits */}
+        <div className="space-y-2.5 pt-3 border-t border-white/10 text-xs">
+          <div className="flex items-center gap-2 text-gray-200">
+            <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>{formatLimit(plan.socialAccountLimit, 'Connected Accounts')}</span>
+          </div>
+
+          <div className="flex items-center gap-2 text-gray-200">
+            <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>{formatLimit(plan.workspaceLimit, 'Dedicated Workspaces')}</span>
+          </div>
+
+          <div className="flex items-center gap-2 text-gray-200">
+            <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>{formatLimit(plan.teamMemberLimit, 'Team Seats')}</span>
+          </div>
+
+          <div className="flex items-center gap-2 text-gray-200">
+            {plan.liveStreaming ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>
+                  {plan.liveStreamLimit === -1
+                    ? 'Unlimited Live Streams'
+                    : `Live Streaming (${plan.liveStreamLimit || 50} streams/mo)`}
+                  {plan.multiPlatformStreaming && ' + Multicast'}
+                </span>
+              </>
+            ) : (
+              <>
+                <X className="w-3.5 h-3.5 text-gray-600 shrink-0" />
+                <span className="text-gray-500">Live Streaming Not Included</span>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 text-gray-200">
+            {plan.scheduling ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>
+                  {plan.maxScheduledPosts === -1
+                    ? 'Unlimited Scheduled Posts'
+                    : `Post Scheduling (Up to ${plan.maxScheduledPosts})`}
+                </span>
+              </>
+            ) : (
+              <>
+                <X className="w-3.5 h-3.5 text-gray-600 shrink-0" />
+                <span className="text-gray-500">Post Scheduling Not Included</span>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 text-gray-200">
+            {plan.aiFeatures ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>
+                  {plan.aiLimit === -1 ? 'Unlimited AI Operations' : `AI Copilot (${plan.aiLimit} credits/mo)`}
+                </span>
+              </>
+            ) : (
+              <>
+                <X className="w-3.5 h-3.5 text-gray-600 shrink-0" />
+                <span className="text-gray-500">AI Features Not Included</span>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 text-gray-200">
+            {plan.analytics ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>Advanced Analytics & Reports</span>
+              </>
+            ) : (
+              <>
+                <X className="w-3.5 h-3.5 text-gray-600 shrink-0" />
+                <span className="text-gray-500">Advanced Analytics Not Included</span>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 text-gray-200">
+            <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>{formatLimit(plan.storageLimit, 'GB Cloud Storage')}</span>
+          </div>
+
+          <div className="flex items-center gap-2 text-gray-200">
+            <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>
+              {plan.support === 'PREMIUM'
+                ? '24/7 Dedicated Support'
+                : plan.support === 'PRIORITY'
+                  ? 'Priority Email & Chat Support'
+                  : 'Standard Community Support'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <Button
+        disabled
+        className={`w-full py-4 rounded-xl font-bold text-xs uppercase tracking-wider shadow-md ${
+          isRecommended
+            ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white'
+            : 'bg-white/10 text-white'
+        }`}
+      >
+        Choose {plan.name || 'Plan'}
+      </Button>
+    </div>
   );
 }
 
@@ -658,7 +1032,7 @@ export function PlanPreviewModal({ isOpen, onClose, plan }: PlanPreviewModalProp
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-gray-950 border-white/10 text-white max-w-lg p-6 shadow-2xl">
+      <DialogContent className="bg-gray-950 border border-white/10 text-white w-[96vw] max-w-[96vw] sm:max-w-md md:max-w-lg p-6 shadow-2xl rounded-2xl">
         <DialogHeader className="mb-4">
           <DialogTitle className="text-lg font-bold flex items-center justify-between">
             <span>Pricing Card Preview</span>
@@ -676,7 +1050,7 @@ export function PlanPreviewModal({ isOpen, onClose, plan }: PlanPreviewModalProp
         </div>
 
         <DialogFooter className="mt-4">
-          <Button variant="outline" onClick={onClose} className="w-full text-xs border-white/10">
+          <Button variant="outline" onClick={onClose} className="w-full text-xs border-white/10 text-gray-300 hover:text-white">
             Close Preview
           </Button>
         </DialogFooter>
@@ -686,187 +1060,8 @@ export function PlanPreviewModal({ isOpen, onClose, plan }: PlanPreviewModalProp
 }
 
 /**
- * Visual preview component rendering the card exactly as users see it
+ * Confirmation dialog for changing plan status
  */
-export function PlanCardPreview({ plan }: { plan: Partial<AdminPlan> }) {
-  const isRecommended = !!plan.isPopular;
-  const price = Number(plan.price) || 0;
-  const currencySymbol = plan.currency === 'USD' ? '$' : '₹';
-
-  const formatLimit = (limit: number | undefined | null, unit: string) => {
-    if (limit === -1) return `Unlimited ${unit}`;
-    if (!limit || limit === 0) return `0 ${unit}`;
-    return `Up to ${limit.toLocaleString()} ${unit}`;
-  };
-
-  return (
-    <div
-      className={`p-6 sm:p-8 rounded-3xl glass-card relative flex flex-col justify-between space-y-6 border transition-all duration-300 ${isRecommended
-          ? 'border-violet-500 shadow-2xl shadow-violet-500/25 bg-card/95 z-20'
-          : 'border-white/10 bg-black/60'
-        }`}
-    >
-      {/* Recommended Badge */}
-      {isRecommended && (
-        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 text-white text-[10px] uppercase font-mono font-black tracking-widest px-4 py-1 rounded-full shadow-lg flex items-center gap-1.5">
-          <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-          <span>RECOMMENDED</span>
-        </div>
-      )}
-
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-2xl font-black tracking-tight text-white">{plan.name || 'Untitled Plan'}</h3>
-            {plan.code && (
-              <span className="text-[10px] font-mono uppercase text-muted-foreground tracking-wider">
-                {plan.code}
-              </span>
-            )}
-          </div>
-          {isRecommended && (
-            <Badge className="bg-violet-500/20 text-violet-300 border-violet-500/30 text-[10px]">
-              Popular Tier
-            </Badge>
-          )}
-        </div>
-
-        <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
-          {plan.description || 'Full NexaSocial social media & live broadcasting capabilities.'}
-        </p>
-
-        {/* Pricing Display */}
-        <div className="flex items-baseline gap-1 pt-2">
-          <span className="text-4xl sm:text-5xl font-black font-mono gradient-text">
-            {price === 0 ? 'Free' : `${currencySymbol}${price.toLocaleString()}`}
-          </span>
-          {price > 0 && (
-            <span className="text-xs text-muted-foreground font-mono">
-              /{plan.billingCycle === 'YEARLY' ? 'year' : plan.billingCycle === 'QUARTERLY' ? 'quarter' : 'mo'}
-            </span>
-          )}
-          {plan.durationDays && plan.durationDays > 0 && (
-            <span className="text-[10px] text-muted-foreground font-mono ml-1">
-              ({plan.durationDays} days)
-            </span>
-          )}
-        </div>
-
-        {/* Feature Lists & Limits */}
-        <div className="space-y-3 pt-6 border-t border-white/10 text-xs">
-          <div className="flex items-start gap-2.5 font-medium text-foreground/90">
-            <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <span>{formatLimit(plan.socialAccountLimit, 'Connected Accounts')}</span>
-          </div>
-
-          <div className="flex items-start gap-2.5 font-medium text-foreground/90">
-            <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <span>{formatLimit(plan.workspaceLimit, 'Workspaces')}</span>
-          </div>
-
-          <div className="flex items-start gap-2.5 font-medium text-foreground/90">
-            <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <span>{formatLimit(plan.teamMemberLimit, 'Team Seats')}</span>
-          </div>
-
-          <div className="flex items-start gap-2.5 font-medium text-foreground/90">
-            {plan.liveStreaming ? (
-              <>
-                <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span>
-                  {plan.liveStreamLimit === -1
-                    ? 'Unlimited Live Streams'
-                    : `Live Streaming (${plan.liveStreamLimit || 100} streams)`}
-                  {plan.multiPlatformStreaming && ' + Multicast'}
-                </span>
-              </>
-            ) : (
-              <>
-                <X className="w-4 h-4 text-muted-foreground/40 shrink-0 mt-0.5" />
-                <span className="text-muted-foreground/60">Live Streaming Not Included</span>
-              </>
-            )}
-          </div>
-
-          <div className="flex items-start gap-2.5 font-medium text-foreground/90">
-            {plan.scheduling ? (
-              <>
-                <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span>
-                  {plan.maxScheduledPosts === -1
-                    ? 'Unlimited Scheduled Posts'
-                    : `Post Scheduling (Up to ${plan.maxScheduledPosts})`}
-                </span>
-              </>
-            ) : (
-              <>
-                <X className="w-4 h-4 text-muted-foreground/40 shrink-0 mt-0.5" />
-                <span className="text-muted-foreground/60">Post Scheduling Not Included</span>
-              </>
-            )}
-          </div>
-
-          <div className="flex items-start gap-2.5 font-medium text-foreground/90">
-            {plan.aiFeatures ? (
-              <>
-                <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span>
-                  {plan.aiLimit === -1 ? 'Unlimited AI Operations' : `AI Tools (${plan.aiLimit} credits/mo)`}
-                </span>
-              </>
-            ) : (
-              <>
-                <X className="w-4 h-4 text-muted-foreground/40 shrink-0 mt-0.5" />
-                <span className="text-muted-foreground/60">AI Features Not Included</span>
-              </>
-            )}
-          </div>
-
-          <div className="flex items-start gap-2.5 font-medium text-foreground/90">
-            {plan.analytics ? (
-              <>
-                <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span>Performance Analytics & Insights</span>
-              </>
-            ) : (
-              <>
-                <X className="w-4 h-4 text-muted-foreground/40 shrink-0 mt-0.5" />
-                <span className="text-muted-foreground/60">Advanced Analytics Not Included</span>
-              </>
-            )}
-          </div>
-
-          <div className="flex items-start gap-2.5 font-medium text-foreground/90">
-            <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <span>{formatLimit(plan.storageLimit, 'GB Cloud Storage')}</span>
-          </div>
-
-          <div className="flex items-start gap-2.5 font-medium text-foreground/90">
-            <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <span>
-              {plan.support === 'PREMIUM'
-                ? '24/7 Dedicated Support'
-                : plan.support === 'PRIORITY'
-                  ? 'Priority Email & Chat Support'
-                  : 'Standard Support'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <Button
-        disabled
-        className={`w-full py-5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-lg ${isRecommended
-            ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white'
-            : 'bg-white/10 text-white'
-          }`}
-      >
-        Choose {plan.name || 'Plan'}
-      </Button>
-    </div>
-  );
-}
-
 interface ConfirmStatusModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -888,7 +1083,7 @@ export function ConfirmStatusModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-gray-950 border-white/10 text-white max-w-md p-6">
+      <DialogContent className="bg-gray-950 border border-white/10 text-white w-[96vw] max-w-[96vw] sm:max-w-md p-6 rounded-2xl">
         <DialogHeader>
           <DialogTitle>
             {targetStatus === 'ARCHIVED' && 'Archive Plan'}
@@ -901,7 +1096,7 @@ export function ConfirmStatusModal({
         </DialogHeader>
 
         {(targetStatus === 'ARCHIVED' || targetStatus === 'INACTIVE') && plan.subscriberCount > 0 && (
-          <div className="flex items-start gap-3 p-4 bg-amber-500/10 text-amber-300 border border-amber-500/20 rounded-lg">
+          <div className="flex items-start gap-3 p-4 bg-amber-500/10 text-amber-300 border border-amber-500/20 rounded-xl my-2">
             <AlertCircle className="h-5 w-5 mt-0.5 shrink-0" />
             <div>
               <h4 className="font-semibold text-xs mb-1">Active Subscriptions Protected</h4>
@@ -913,8 +1108,8 @@ export function ConfirmStatusModal({
           </div>
         )}
 
-        <DialogFooter className="mt-4">
-          <Button variant="ghost" onClick={onClose} disabled={isLoading} className="text-xs">
+        <DialogFooter className="mt-4 gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={isLoading} className="text-xs text-gray-400 hover:text-white">
             Cancel
           </Button>
           <Button

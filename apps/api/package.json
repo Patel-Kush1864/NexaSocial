@@ -31,7 +31,11 @@
     "migration:create": "typeorm-ts-node-commonjs migration:create",
     "migration:run": "typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts",
-    "db:seed": "ts-node -r tsconfig-paths/register src/database/seeders/run.ts"
+    "db:seed": "ts-node -r tsconfig-paths/register src/database/seeders/run.ts",
+    "db:seed:random": "ts-node -r tsconfig-paths/register src/database/seeders/random-data.runner.ts",
+    "db:seed:dates": "ts-node -r tsconfig-paths/register src/database/seeders/random-data.runner.ts --fresh",
+    "db:reset": "ts-node -r tsconfig-paths/register src/database/reset.ts",
+    "db:fresh": "ts-node -r tsconfig-paths/register src/database/reset.ts && typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts && ts-node -r tsconfig-paths/register src/database/seeders/run.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1092.0",

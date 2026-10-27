@@ -47,7 +47,7 @@ export function SubscriptionsReport({ dateRange }: { dateRange: DateRange | unde
         <Table>
           <TableHeader>
             <TableRow className="border-white/10">
-              <TableHead className="text-gray-400">Workspace</TableHead>
+              <TableHead className="text-gray-400">User / Account</TableHead>
               <TableHead className="text-gray-400">Plan</TableHead>
               <TableHead className="text-gray-400">Status</TableHead>
               <TableHead className="text-gray-400 text-right">Created At</TableHead>
@@ -56,7 +56,7 @@ export function SubscriptionsReport({ dateRange }: { dateRange: DateRange | unde
           <TableBody>
             {data.rows.map((sub: any) => (
               <TableRow key={sub.id} className="border-white/10 text-white hover:bg-white/5">
-                <TableCell>{sub.workspaceName}</TableCell>
+                <TableCell>{sub.userEmail || sub.userName || sub.workspaceName || 'Account'}</TableCell>
                 <TableCell>{sub.planName}</TableCell>
                 <TableCell>
                   <Badge variant={sub.status === 'ACTIVE' ? 'default' : 'secondary'}>

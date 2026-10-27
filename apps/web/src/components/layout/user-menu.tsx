@@ -13,14 +13,21 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { User, CreditCard, LogOut, ShieldAlert } from 'lucide-react';
+import { User, CreditCard, LogOut, ShieldAlert, Building2 } from 'lucide-react';
+import { useWorkspaceStore } from '@/stores/workspace-store';
+import { useAuthStore } from '@/stores/auth-store';
+import { Badge } from '@/components/ui/badge';
 
 export function UserMenu() {
   const { user, logout } = useAuth();
+  const { currentWorkspace } = useWorkspaceStore();
+  const { hasPermission } = useAuthStore();
 
   if (!user) return null;
 
   const initials = `${user.firstName?.charAt(0) || ''}${user.lastName?.charAt(0) || ''}`.toUpperCase() || 'U';
+  const role = currentWorkspace?.role || (currentWorkspace?.ownerId === user.id ? 'OWNER' : user.role);
+  const canAccessBilling = currentWorkspace?.ownerId === user.id || role === 'OWNER' || hasPermission('billing.view');
 
   return (
     <DropdownMenu>
@@ -43,6 +50,16 @@ export function UserMenu() {
             <p className="text-xs text-muted-foreground leading-none truncate">
               {user.email}
             </p>
+            {currentWorkspace && (
+              <div className="flex items-center gap-1.5 pt-1">
+                <Badge variant="outline" className="text-[9px] uppercase font-bold border-primary/30 text-primary">
+                  {role}
+                </Badge>
+                <span className="text-[10px] text-muted-foreground truncate font-medium">
+                  {currentWorkspace.name}
+                </span>
+              </div>
+            )}
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
@@ -53,12 +70,14 @@ export function UserMenu() {
               <span>Profile & Settings</span>
             </Link>
           </DropdownMenuItem>
-          <DropdownMenuItem asChild className="cursor-pointer">
-            <Link href="/billing" className="flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-muted-foreground" />
-              <span>Billing & Subscription</span>
-            </Link>
-          </DropdownMenuItem>
+          {canAccessBilling && (
+            <DropdownMenuItem asChild className="cursor-pointer">
+              <Link href="/billing" className="flex items-center gap-2">
+                <CreditCard className="w-4 h-4 text-muted-foreground" />
+                <span>Billing & Subscription</span>
+              </Link>
+            </DropdownMenuItem>
+          )}
           {user.role === 'ADMIN' && (
             <DropdownMenuItem asChild className="cursor-pointer text-amber-500 font-semibold">
               <Link href="/admin" className="flex items-center gap-2">

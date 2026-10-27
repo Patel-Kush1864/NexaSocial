@@ -8,20 +8,80 @@ import {
 
 @Injectable()
 export class YoutubeService implements PlatformHandler {
-  private readonly clientId = process.env.YOUTUBE_CLIENT_ID;
-  private readonly clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
-  private readonly redirectUri =
-    process.env.YOUTUBE_REDIRECT_URI ||
-    process.env.GOOGLE_CALLBACK_URL ||
-    'http://localhost:5000/api/auth/google/callback';
+  get clientId(): string | undefined {
+    const isReal = (val?: string) => Boolean(val && !val.startsWith('dummy-'));
+    return (
+      (isReal(process.env.YOUTUBE_CLIENT_ID) ? process.env.YOUTUBE_CLIENT_ID : undefined) ||
+      (isReal(process.env.GOOGLE_CLIENT_ID) ? process.env.GOOGLE_CLIENT_ID : undefined) ||
+      process.env.YOUTUBE_CLIENT_ID ||
+      process.env.GOOGLE_CLIENT_ID
+    );
+  }
 
-  private isSimulationMode(): boolean {
+  get clientSecret(): string | undefined {
+    const isReal = (val?: string) => Boolean(val && !val.startsWith('dummy-'));
+    return (
+      (isReal(process.env.YOUTUBE_CLIENT_SECRET) ? process.env.YOUTUBE_CLIENT_SECRET : undefined) ||
+      (isReal(process.env.GOOGLE_CLIENT_SECRET) ? process.env.GOOGLE_CLIENT_SECRET : undefined) ||
+      process.env.YOUTUBE_CLIENT_SECRET ||
+      process.env.GOOGLE_CLIENT_SECRET
+    );
+  }
+
+  get canonicalRedirectUri(): string {
+    return (
+      process.env.YOUTUBE_REDIRECT_URI ||
+      process.env.GOOGLE_CALLBACK_URL ||
+      'http://localhost:5000/api/auth/google/callback'
+    );
+  }
+
+  isSimulationMode(): boolean {
     return (
       !this.clientId ||
       this.clientId.startsWith('dummy-') ||
       !this.clientSecret ||
       this.clientSecret.startsWith('dummy-')
     );
+  }
+
+  getPreflightDiagnostics() {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    const clientId = this.clientId;
+    const clientSecret = this.clientSecret;
+    const redirectUri = this.canonicalRedirectUri;
+
+    if (!clientId || clientId.startsWith('dummy-')) {
+      errors.push(
+        'GOOGLE_CLIENT_ID / YOUTUBE_CLIENT_ID is missing or set to a placeholder.',
+      );
+    }
+    if (!clientSecret || clientSecret.startsWith('dummy-')) {
+      errors.push(
+        'GOOGLE_CLIENT_SECRET / YOUTUBE_CLIENT_SECRET is missing or set to a placeholder.',
+      );
+    }
+
+    try {
+      const parsed = new URL(redirectUri);
+      if (!parsed.protocol.startsWith('http')) {
+        errors.push(
+          `Redirect URI '${redirectUri}' does not have a valid http/https protocol.`,
+        );
+      }
+    } catch {
+      errors.push(`Redirect URI '${redirectUri}' is not a valid URL.`);
+    }
+
+    return {
+      platform: 'YOUTUBE',
+      isValid: errors.length === 0,
+      errors,
+      warnings,
+      clientId: clientId ? `${clientId.substring(0, 16)}...` : null,
+      redirectUri,
+    };
   }
 
   getAuthUrl(state: string): string {
@@ -36,7 +96,7 @@ export class YoutubeService implements PlatformHandler {
     ].join(' ');
 
     return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${this.clientId}&redirect_uri=${encodeURIComponent(
-      this.redirectUri,
+      this.canonicalRedirectUri,
     )}&response_type=code&scope=${encodeURIComponent(
       scopes,
     )}&state=${state}&access_type=offline&prompt=consent`;
@@ -63,7 +123,7 @@ export class YoutubeService implements PlatformHandler {
           code,
           client_id: this.clientId || '',
           client_secret: this.clientSecret || '',
-          redirect_uri: this.redirectUri,
+          redirect_uri: this.canonicalRedirectUri,
           grant_type: 'authorization_code',
         }),
       });

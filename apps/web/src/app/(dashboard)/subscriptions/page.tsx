@@ -35,9 +35,9 @@ export default function SubscriptionsPage() {
     sortOrder,
   });
 
-  const subscriptions = data?.data || [];
-  const total = data?.pagination?.total || 0;
-  const totalPages = data?.pagination?.totalPages || 0;
+  const subscriptions = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+  const total = data?.pagination?.total ?? (data as any)?.meta?.total ?? subscriptions.length;
+  const totalPages = data?.pagination?.totalPages ?? (data as any)?.meta?.totalPages ?? (total > 0 ? 1 : 0);
 
   const handleSearch = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -95,10 +95,9 @@ export default function SubscriptionsPage() {
               type: 'select',
               placeholder: 'All Plans',
               options: [
-                { label: 'Free', value: 'Free' },
-                { label: 'Pro', value: 'Pro' },
-                { label: 'Business', value: 'Business' },
-                { label: 'Enterprise', value: 'Enterprise' },
+                { label: 'Starter Plan', value: 'Starter Plan' },
+                { label: 'Pro Plan', value: 'Pro Plan' },
+                { label: 'Enterprise Plan', value: 'Enterprise Plan' },
               ],
             },
             { id: 'dateFrom', type: 'date', placeholder: 'From Date' },

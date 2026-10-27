@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { spawn, ChildProcess } from 'child_process';
+import * as fs from 'fs';
 import { LoggerServiceWrapper } from '../../logger/logger.service';
 
 export interface StreamForwardOptions {
@@ -10,13 +11,55 @@ export interface StreamForwardOptions {
   platform?: string;
 }
 
+export interface RelayDiagnostics {
+  streamId: string;
+  pid?: number;
+  isProcessRunning: boolean;
+  exitCode: number | null;
+  exitSignal: string | null;
+  framesTransmitted: boolean;
+  transmittedChunks: number;
+  lastTransmissionTime: Date | null;
+  lastRtmpError: string | null;
+  recentStderr: string[];
+}
+
 @Injectable()
 export class FFmpegService implements OnModuleDestroy {
   private activeProcesses = new Map<string, ChildProcess>();
   private headerChunks = new Map<string, Buffer>();
   private chunkCounters = new Map<string, number>();
+  private lastFrameTimes = new Map<string, Date>();
+  private lastExitCodes = new Map<
+    string,
+    { code: number | null; signal: string | null; at: Date }
+  >();
+  private recentStderrLogs = new Map<string, string[]>();
+  private lastRtmpErrors = new Map<string, string>();
+  private processPids = new Map<string, number>();
+  private processPlatforms = new Map<string, string>();
 
   constructor(private readonly logger: LoggerServiceWrapper) { }
+
+  /**
+   * Sanitizes text removing any stream keys, query parameters, or sensitive URL parts.
+   */
+  sanitizeStderr(text: string): string {
+    if (!text) return '';
+    return text
+      .replace(/rtmps?:\/\/[^\s]+/gi, (url) => {
+        try {
+          const u = new URL(url.replace(/^rtmps?:\/\//, 'http://'));
+          return `rtmps://${u.host}/••••••••`;
+        } catch {
+          return 'rtmps://••••••••';
+        }
+      })
+      .replace(/([?&][a-zA-Z0-9_\-]+)=([^&\s]+)/g, '$1=••••••••')
+      .replace(/([0-9a-zA-Z]{16,})/g, (match) => {
+        return `${match.slice(0, 4)}••••••••`;
+      });
+  }
 
   /**
    * Check if a buffer starts with WebM/EBML header (0x1A 0x45 0xDF 0xA3)
@@ -32,19 +75,77 @@ export class FFmpegService implements OnModuleDestroy {
   }
 
   /**
+   * Resolves the FFmpeg executable binary with multiple fallback strategies:
+   * 1. FFMPEG_PATH environment variable
+   * 2. Winget Gyan package default installation path
+   * 3. ffmpeg-static npm package
+   * 4. System PATH 'ffmpeg'
+   */
+  resolveFFmpegBinary(): string {
+    const envPath = (process.env.FFMPEG_PATH || '')
+      .replace(/^["']|["']$/g, '')
+      .trim();
+    if (envPath && fs.existsSync(envPath)) {
+      return envPath;
+    }
+
+    const wingetGyanPath =
+      'C:\\Users\\Patel Kush\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-9.0.2-full_build\\bin\\ffmpeg.exe';
+    if (fs.existsSync(wingetGyanPath)) {
+      return wingetGyanPath;
+    }
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const staticPath: unknown = require('ffmpeg-static');
+      if (staticPath && typeof staticPath === 'string' && fs.existsSync(staticPath)) {
+        return staticPath;
+      }
+    } catch {
+      // Fallback
+    }
+
+    return 'ffmpeg';
+  }
+
+  /**
    * Start forwarding a stream to a remote platform using FFmpeg.
+   * Safe and idempotent: reuses active running processes and avoids duplicate workers.
    */
   startForwarding(options: StreamForwardOptions): boolean {
     const { streamId, sourceUrl, destinationUrl, streamKey } = options;
     const processKey = `${streamId}:${streamKey}`;
 
-    if (this.activeProcesses.has(processKey)) {
-      this.logger.warn(
-        `FFmpeg process for ${processKey} is already active.`,
+    const existingProc = this.activeProcesses.get(processKey);
+    if (existingProc && !existingProc.killed && existingProc.exitCode === null) {
+      console.log(
+        `[INSTAGRAM_LIVE][RELAY] action=reuse streamId=${streamId} pid=${existingProc.pid} platform=${options.platform || 'Platform'}`,
+      );
+      this.logger.log(
+        `[INSTAGRAM_LIVE][RELAY] action=reuse streamId=${streamId} pid=${existingProc.pid}`,
         'FFmpegService',
         'application',
       );
       return true;
+    } else if (existingProc) {
+      this.activeProcesses.delete(processKey);
+    }
+
+    // Clean up any stale/conflicting workers for the SAME platform on this stream before spawning
+    const currentPlatform = (options.platform || '').toUpperCase();
+    for (const [key, proc] of this.activeProcesses.entries()) {
+      if (key.startsWith(`${streamId}:`) && key !== processKey) {
+        const procPlatform = (this.processPlatforms.get(key) || '').toUpperCase();
+        // Only stop if they belong to the same platform (e.g. replacing an old key on the same platform)
+        if (currentPlatform && procPlatform && currentPlatform === procPlatform) {
+          console.log(
+            `[LIVE][RELAY] action=stop_conflict streamId=${streamId} staleKey=${key} platform=${currentPlatform} reason=new_relay_started caller=startForwarding`,
+          );
+          proc.kill('SIGTERM');
+          this.activeProcesses.delete(key);
+          this.processPlatforms.delete(key);
+        }
+      }
     }
 
     this.logger.log(
@@ -77,9 +178,7 @@ export class FFmpegService implements OnModuleDestroy {
         undefined,
         'FFmpegService',
       );
-      throw new Error(
-        `Invalid or prohibited streaming destination URL: ${destinationUrl}`,
-      );
+      return false;
     }
 
     let args: string[];
@@ -114,7 +213,7 @@ export class FFmpegService implements OnModuleDestroy {
         '-bufsize',
         '6000k',
         ...(options.platform === 'INSTAGRAM'
-          ? ['-vf', 'scale=720:-1,pad=720:1280:0:(1280-ih)/2:black']
+          ? ['-vf', 'scale=720:-2,pad=720:1280:0:(1280-ih)/2:black']
           : []),
         '-c:a',
         'aac',
@@ -144,16 +243,7 @@ export class FFmpegService implements OnModuleDestroy {
     }
 
     try {
-      let ffmpegBinary = 'ffmpeg';
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const staticPath: unknown = require('ffmpeg-static');
-        if (staticPath && typeof staticPath === 'string') {
-          ffmpegBinary = staticPath;
-        }
-      } catch {
-        // Fallback to system ffmpeg
-      }
+      const ffmpegBinary = this.resolveFFmpegBinary();
 
       console.log(
         `\n\x1b[1;34m╔════════════════════════════════════════════════════════════════════════════════╗\n` +
@@ -174,6 +264,10 @@ export class FFmpegService implements OnModuleDestroy {
       const ffmpegProc = spawn(ffmpegBinary, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
+
+      console.log(
+        `[INSTAGRAM_LIVE][RELAY] action=start streamId=${streamId} pid=${ffmpegProc.pid || 'unknown'} platform=${options.platform || 'Platform'}`,
+      );
 
       if (ffmpegProc.stdin) {
         ffmpegProc.stdin.on('error', (err: Error) => {
@@ -223,53 +317,76 @@ export class FFmpegService implements OnModuleDestroy {
       });
 
       ffmpegProc.stderr?.on('data', (data: Buffer | string) => {
-        const msg = String(data).trim();
-        if (msg) {
-          if (/error|failed/i.test(msg)) {
-            console.error(
-              `\x1b[31m[FFMPEG RELAY ERROR] [${streamId}]: ${msg}\x1b[0m`,
-            );
-            this.logger.warn(
-              `[LIVE] FFmpeg error [${streamId}]: ${msg}`,
-              'FFmpegService',
-              'application',
-            );
-          } else if (msg.includes('frame=')) {
-            // Periodic encoder status
-            this.logger.debug(
-              `[LIVE] FFmpeg status [${streamId}]: ${msg}`,
-              'FFmpegService',
-            );
-          } else {
-            console.log(`\x1b[90m[FFMPEG RELAY] [${streamId}]: ${msg}\x1b[0m`);
-            this.logger.log(
-              `[LIVE] FFmpeg status [${streamId}]: ${msg}`,
-              'FFmpegService',
-              'application',
-            );
-          }
+        const raw = String(data).trim();
+        if (!raw) return;
+        const sanitized = this.sanitizeStderr(raw);
+
+        const recent = this.recentStderrLogs.get(streamId) || [];
+        recent.push(sanitized);
+        if (recent.length > 20) recent.shift();
+        this.recentStderrLogs.set(streamId, recent);
+
+        if (/error|failed|fatal alert|connection refused|broken pipe|i\/o error/i.test(sanitized)) {
+          this.lastRtmpErrors.set(streamId, sanitized);
+          console.error(
+            `\x1b[31m[FFMPEG RELAY ERROR] [${streamId}]: ${sanitized}\x1b[0m`,
+          );
+          this.logger.warn(
+            `[LIVE] FFmpeg error [${streamId}]: ${sanitized}`,
+            'FFmpegService',
+            'application',
+          );
+        } else if (sanitized.includes('frame=')) {
+          // Periodic encoder status
+          this.logger.debug(
+            `[LIVE] FFmpeg status [${streamId}]: ${sanitized}`,
+            'FFmpegService',
+          );
+        } else {
+          console.log(`\x1b[90m[FFMPEG RELAY] [${streamId}]: ${sanitized}\x1b[0m`);
+          this.logger.log(
+            `[LIVE] FFmpeg status [${streamId}]: ${sanitized}`,
+            'FFmpegService',
+            'application',
+          );
         }
       });
 
-      ffmpegProc.on('close', (code: number | null) => {
+      ffmpegProc.on('close', (code: number | null, signal: NodeJS.Signals | null) => {
+        this.lastExitCodes.set(streamId, {
+          code,
+          signal: signal ? String(signal) : null,
+          at: new Date(),
+        });
+        console.log(
+          `[INSTAGRAM_LIVE][RELAY] action=exit streamId=${streamId} pid=${ffmpegProc.pid} code=${String(code)} signal=${String(signal)}`,
+        );
         this.logger.log(
-          `[LIVE] FFmpeg process for stream [${streamId}] exited with code ${String(code)}`,
+          `[LIVE] FFmpeg process for stream [${streamId}] exited with code ${String(code)} signal ${String(signal)}`,
           'FFmpegService',
           'application',
         );
         this.activeProcesses.delete(processKey);
+        this.processPlatforms.delete(processKey);
       });
 
       ffmpegProc.on('error', (err: Error) => {
+        console.error(
+          `[INSTAGRAM_LIVE][RELAY] action=spawn_error streamId=${streamId} error="${err.message}"`,
+        );
         this.logger.warn(
           `[LIVE] FFmpeg spawn error [${streamId}]: ${err.message}`,
           'FFmpegService',
           'application',
         );
         this.activeProcesses.delete(processKey);
+        this.processPlatforms.delete(processKey);
       });
 
       this.activeProcesses.set(processKey, ffmpegProc);
+      if (options.platform) {
+        this.processPlatforms.set(processKey, options.platform);
+      }
       this.logger.log(
         `[LIVE] ${options.platform || 'Platform'} relay running for stream [${streamId}]`,
         'FFmpegService',
@@ -306,6 +423,7 @@ export class FFmpegService implements OnModuleDestroy {
     }
 
     if (written) {
+      this.lastFrameTimes.set(streamId, new Date());
       const count = (this.chunkCounters.get(streamId) || 0) + 1;
       this.chunkCounters.set(streamId, count);
       if (count === 1 || count % 30 === 0) {
@@ -320,15 +438,30 @@ export class FFmpegService implements OnModuleDestroy {
   }
 
   /**
-   * Stop forwarding for a specific stream and destination key.
+   * Stop forwarding for a specific stream and destination key with caller and reason attribution.
    */
-  stopForwarding(streamId: string, streamKey?: string): void {
+  stopForwarding(
+    streamId: string,
+    streamKey?: string,
+    reason = 'unspecified',
+    caller = 'unknown',
+  ): void {
+    console.log(
+      `[INSTAGRAM_LIVE][RELAY] action=stop streamId=${streamId} targetKey=${streamKey ? 'specific' : 'all'} reason=${reason} caller=${caller}`,
+    );
+    this.logger.log(
+      `[INSTAGRAM_LIVE][RELAY] action=stop streamId=${streamId} targetKey=${streamKey ? 'specific' : 'all'} reason=${reason} caller=${caller}`,
+      'FFmpegService',
+      'application',
+    );
+
     if (streamKey) {
       const processKey = `${streamId}:${streamKey}`;
       const proc = this.activeProcesses.get(processKey);
       if (proc) {
         proc.kill('SIGTERM');
         this.activeProcesses.delete(processKey);
+        this.processPlatforms.delete(processKey);
         this.logger.log(
           `Stopped FFmpeg relay process for ${processKey}`,
           'FFmpegService',
@@ -341,6 +474,7 @@ export class FFmpegService implements OnModuleDestroy {
         if (key.startsWith(`${streamId}:`)) {
           proc.kill('SIGTERM');
           this.activeProcesses.delete(key);
+          this.processPlatforms.delete(key);
           this.logger.log(
             `Stopped FFmpeg relay process for ${key}`,
             'FFmpegService',
@@ -349,22 +483,90 @@ export class FFmpegService implements OnModuleDestroy {
         }
       }
     }
+
+    if (!this.isForwarding(streamId)) {
+      this.chunkCounters.delete(streamId);
+      this.headerChunks.delete(streamId);
+    }
   }
 
   /**
-   * Check if a stream relay process is running.
+   * Check if a stream relay process is running and actively alive.
    */
   isForwarding(streamId: string, streamKey?: string): boolean {
     if (streamKey) {
       const processKey = `${streamId}:${streamKey}`;
-      return this.activeProcesses.has(processKey);
+      const proc = this.activeProcesses.get(processKey);
+      if (proc) {
+        if (!proc.killed && proc.exitCode === null) {
+          return true;
+        }
+        this.activeProcesses.delete(processKey);
+      }
+      return false;
     }
-    for (const key of this.activeProcesses.keys()) {
+    for (const [key, proc] of this.activeProcesses.entries()) {
       if (key.startsWith(`${streamId}:`)) {
-        return true;
+        if (!proc.killed && proc.exitCode === null) {
+          return true;
+        }
+        this.activeProcesses.delete(key);
       }
     }
     return false;
+  }
+
+  /**
+   * Returns the count of video/audio chunks successfully piped to FFmpeg for a stream.
+   */
+  getTransmittedChunkCount(streamId: string): number {
+    return this.chunkCounters.get(streamId) || 0;
+  }
+
+  /**
+   * Checks whether video frames have actually been piped to FFmpeg for this stream.
+   */
+  isTransmittingFrames(streamId: string): boolean {
+    return (this.chunkCounters.get(streamId) || 0) > 0;
+  }
+
+  /**
+   * Last successful transmission timestamp for a stream.
+   */
+  getLastTransmissionTime(streamId: string): Date | null {
+    return this.lastFrameTimes.get(streamId) || null;
+  }
+
+  /**
+   * Returns safe structured diagnostics for a stream relay without exposing credentials.
+   */
+  getRelayDiagnostics(streamId: string): RelayDiagnostics {
+    const isRunning = this.isForwarding(streamId);
+    let pid: number | undefined;
+    for (const [key, proc] of this.activeProcesses.entries()) {
+      if (key.startsWith(`${streamId}:`) && proc.pid && !proc.killed && proc.exitCode === null) {
+        pid = proc.pid;
+        break;
+      }
+    }
+    const lastExit = this.lastExitCodes.get(streamId);
+    const chunkCount = this.chunkCounters.get(streamId) || 0;
+    const lastTime = this.lastFrameTimes.get(streamId) || null;
+    const recentStderr = this.recentStderrLogs.get(streamId) || [];
+    const lastError = this.lastRtmpErrors.get(streamId) || null;
+
+    return {
+      streamId,
+      pid,
+      isProcessRunning: isRunning,
+      exitCode: isRunning ? null : (lastExit?.code ?? null),
+      exitSignal: isRunning ? null : (lastExit?.signal ?? null),
+      framesTransmitted: chunkCount > 0,
+      transmittedChunks: chunkCount,
+      lastTransmissionTime: lastTime,
+      lastRtmpError: lastError,
+      recentStderr: recentStderr.slice(-5),
+    };
   }
 
   /**

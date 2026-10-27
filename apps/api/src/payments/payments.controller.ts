@@ -113,8 +113,22 @@ export class PaymentsController {
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermission('platform.payments.view')
+  @Get('platform/all')
+  async findAllPlatform(@Query() query: PaymentListQueryDto) {
+    return this.paymentsService.findAll(query);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('platform.payments.view')
   @Get('statistics')
   async getStatistics(@Query() query: PaymentStatisticsQueryDto) {
+    return this.paymentsService.getStatistics(query);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('platform.payments.view')
+  @Get('platform/statistics')
+  async getPlatformStatistics(@Query() query: PaymentStatisticsQueryDto) {
     return this.paymentsService.getStatistics(query);
   }
 
@@ -151,6 +165,17 @@ export class PaymentsController {
   @RequirePermission('platform.payments.view')
   @Get(':id')
   async findOneById(@Param('id') id: string) {
+    if (
+      id === 'history' ||
+      id === 'statistics' ||
+      id === 'export' ||
+      id === 'platform' ||
+      id === 'create-order' ||
+      id === 'verify' ||
+      id === 'webhook'
+    ) {
+      return;
+    }
     return this.paymentsService.findOneById(id);
   }
 }

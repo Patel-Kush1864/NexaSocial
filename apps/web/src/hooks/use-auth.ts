@@ -5,11 +5,13 @@
 // NexaSocial — Auth Hook
 // ═══════════════════════════════════════════
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
+import { useWorkspaceStore } from '@/stores/workspace-store';
 import { authService } from '@/services/auth.service';
 import { userService } from '@/services/user.service';
+import { workspaceService } from '@/services/workspace.service';
 import { setAccessToken } from '@/lib/api-client';
 import { toast } from 'sonner';
 import type { AxiosError } from 'axios';
@@ -17,10 +19,20 @@ import type { ApiError, LoginCredentials, RegisterPayload } from '@/types';
 
 export function useAuth() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { user, isAuthenticated, isLoading, login, logout, setUser } = useAuthStore();
+  const { setWorkspaces } = useWorkspaceStore();
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginCredentials) => {
+      // Clear any previous session state to prevent cross-contamination
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('nexasocial-workspace');
+      }
+      useWorkspaceStore.getState().setCurrentWorkspace(null);
+      useWorkspaceStore.getState().setWorkspaces([]);
+      queryClient.clear();
+
       const normalizedCredentials = {
         ...credentials,
         email: credentials.email.trim().toLowerCase(),
@@ -30,10 +42,22 @@ export function useAuth() {
       localStorage.setItem('nexasocial_refresh_token', tokens.refreshToken);
 
       const profile = await userService.getProfile();
+
+      try {
+        const userWorkspaces = await workspaceService.getAll();
+        setWorkspaces(userWorkspaces);
+      } catch (wsErr) {
+        console.warn('Could not refresh workspaces on login:', wsErr);
+      }
+
       return profile;
     },
-    onSuccess: (profile) => {
+    onSuccess: async (profile) => {
       login(profile);
+      await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+      await queryClient.invalidateQueries({ queryKey: ['subscriptions', 'entitlements'] });
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+
       toast.success('Welcome back!', {
         description: `Logged in as ${profile.firstName}`,
       });
@@ -45,6 +69,24 @@ export function useAuth() {
           router.push(`/invitations/accept?token=${pendingToken}`);
           return;
         }
+      }
+
+      // Check user type and route correctly
+      const isPlatformAdmin = profile.role === 'SUPER_ADMIN' || profile.role === 'ADMIN';
+      if (isPlatformAdmin) {
+        router.push('/dashboard');
+        return;
+      }
+
+      const store = useWorkspaceStore.getState();
+      const currentWs = store.currentWorkspace;
+      const userWorkspaces = store.workspaces;
+
+      // Only route to billing if user is an un-onboarded owner with no workspace
+      const isOwner = profile.role === 'WORKSPACE_OWNER' || (currentWs?.ownerId === profile.id);
+      if (isOwner && (!currentWs || userWorkspaces.length === 0)) {
+        router.push('/billing');
+        return;
       }
 
       router.push('/dashboard');
@@ -73,11 +115,21 @@ export function useAuth() {
 
   const registerMutation = useMutation({
     mutationFn: async (payload: RegisterPayload) => {
-      console.log('[useAuth register] Initiating registration request with payload:', {
+      const storedPendingToken =
+        typeof window !== 'undefined'
+          ? localStorage.getItem('pending_invitation_token') || undefined
+          : undefined;
+
+      const finalPayload: RegisterPayload = {
         ...payload,
+        invitationToken: payload.invitationToken || storedPendingToken,
+      };
+
+      console.log('[useAuth register] Initiating registration request with payload:', {
+        ...finalPayload,
         password: '***',
       });
-      const registeredUser = await authService.register(payload);
+      const registeredUser = await authService.register(finalPayload);
 
       // Auto-login registered user using existing login workflow
       const normalizedCredentials = {
@@ -88,44 +140,65 @@ export function useAuth() {
       setAccessToken(tokens.accessToken);
       localStorage.setItem('nexasocial_refresh_token', tokens.refreshToken);
 
+      let profile: any;
       try {
-        const profile = await userService.getProfile();
-        return profile;
+        profile = await userService.getProfile();
       } catch (profileErr) {
         console.warn(
           'Could not fetch profile, falling back to registration details:',
           profileErr,
         );
-        return {
+        profile = {
           id: registeredUser.id,
           firstName: registeredUser.firstName || payload.firstName,
           lastName: registeredUser.lastName || payload.lastName,
           email: registeredUser.email || payload.email,
-          role: 'CREATOR',
+          role: (registeredUser as any)?.isInvited ? 'CREATOR' : 'WORKSPACE_OWNER',
           permissions: [],
           isActive: true,
-          workspaces: 0,
+          workspaces: (registeredUser as any)?.workspaceId ? 1 : 0,
           connectedAccounts: 0,
           subscription: 'None',
         } as any;
       }
-    },
-    onSuccess: (profile) => {
-      login(profile);
-      toast.success('Welcome to NexaSocial!', {
-        description: `Account created for ${profile.firstName}!`,
-      });
 
-      if (typeof window !== 'undefined') {
-        const pendingToken = localStorage.getItem('pending_invitation_token');
-        if (pendingToken) {
-          localStorage.removeItem('pending_invitation_token');
-          router.push(`/invitations/accept?token=${pendingToken}`);
-          return;
-        }
+      // Pre-load workspaces for the newly registered user
+      try {
+        const userWorkspaces = await workspaceService.getAll();
+        setWorkspaces(userWorkspaces);
+      } catch (wsErr) {
+        console.warn('Could not pre-fetch workspaces:', wsErr);
       }
 
-      router.push('/dashboard');
+      const isInvited =
+        Boolean((registeredUser as any)?.isInvited) || Boolean(finalPayload.invitationToken);
+
+      return {
+        profile,
+        isInvited,
+      };
+    },
+    onSuccess: async ({ profile, isInvited }) => {
+      login(profile);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('pending_invitation_token');
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ['workspaces'] });
+      await queryClient.invalidateQueries({ queryKey: ['subscriptions', 'entitlements'] });
+
+      if (isInvited) {
+        toast.success('Your invitation has been accepted. Welcome to the workspace!');
+        router.push('/dashboard');
+        return;
+      }
+
+      // New public workspace owner: redirect to plan selection page
+      toast.success('Welcome to NexaSocial!', {
+        description:
+          "Your account has been created successfully. Choose a subscription plan to get started. After your subscription is successfully activated, you'll be able to create your workspace and access the features included in your plan.",
+      });
+      router.push('/billing');
     },
     onError: (error: AxiosError<ApiError>) => {
       console.error('[useAuth register onError] Axios error object:', error);
@@ -159,6 +232,7 @@ export function useAuth() {
     },
     onSettled: () => {
       setAccessToken(null);
+      queryClient.clear();
       logout();
       router.push('/login');
       toast.success('Logged out successfully');

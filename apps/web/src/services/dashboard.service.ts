@@ -3,10 +3,27 @@
 // ═══════════════════════════════════════════
 
 import apiClient from '@/lib/api-client';
-import type { DashboardSummary, DashboardStatistics } from '@/types';
+import type {
+  DashboardSummary,
+  DashboardStatistics,
+  DashboardOverviewResponse,
+} from '@/types';
 import type { UserAnalyticsResponse, WorkspaceAnalyticsResponse, SubscriptionAnalyticsResponse, RevenueAnalyticsResponse, SocialPlatformAnalyticsResponse, LiveStreamAnalyticsResponse } from '@/types/analytics';
 
 export const dashboardService = {
+  async getOverview(
+    workspaceId: string,
+    range = '7d',
+  ): Promise<DashboardOverviewResponse> {
+    const { data } = await apiClient.get<DashboardOverviewResponse>(
+      '/dashboard/overview',
+      {
+        params: { workspaceId, range },
+      },
+    );
+    return data;
+  },
+
   async getPlatformSummary() {
     const { data } = await apiClient.get('/admin/dashboard');
     return data;

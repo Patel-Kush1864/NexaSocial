@@ -26,8 +26,9 @@ export function useNotifications(workspaceId?: string) {
     queryKey: queryKeys.notifications.all(workspaceId),
     queryFn: async () => {
       const data = await notificationService.getAll({ workspaceId });
-      setNotifications(data);
-      return data;
+      const safeData = Array.isArray(data) ? data : [];
+      setNotifications(safeData);
+      return safeData;
     },
   });
 
@@ -35,8 +36,9 @@ export function useNotifications(workspaceId?: string) {
     queryKey: queryKeys.notifications.unreadCount(workspaceId),
     queryFn: async () => {
       const res = await notificationService.getUnreadCount(workspaceId);
-      setUnreadCount(res.unreadCount);
-      return res.unreadCount;
+      const count = typeof res?.unreadCount === 'number' ? res.unreadCount : 0;
+      setUnreadCount(count);
+      return count;
     },
     refetchInterval: 30000, // Fallback poll every 30s
   });
@@ -45,6 +47,9 @@ export function useNotifications(workspaceId?: string) {
     mutationFn: (id: string) => notificationService.markAsRead(id),
     onSuccess: (_, id) => {
       markReadStore(id);
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.notifications.all(workspaceId),
+      });
       queryClient.invalidateQueries({
         queryKey: queryKeys.notifications.unreadCount(workspaceId),
       });
@@ -55,6 +60,9 @@ export function useNotifications(workspaceId?: string) {
     mutationFn: () => notificationService.markAllAsRead(workspaceId),
     onSuccess: () => {
       markAllReadStore();
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.notifications.all(workspaceId),
+      });
       queryClient.invalidateQueries({
         queryKey: queryKeys.notifications.unreadCount(workspaceId),
       });
@@ -67,14 +75,24 @@ export function useNotifications(workspaceId?: string) {
     onSuccess: (_, id) => {
       removeStore(id);
       queryClient.invalidateQueries({
+        queryKey: queryKeys.notifications.all(workspaceId),
+      });
+      queryClient.invalidateQueries({
         queryKey: queryKeys.notifications.unreadCount(workspaceId),
       });
       toast.success('Notification removed');
     },
   });
 
+  const rawList = notificationsQuery.data ?? notifications;
+  const safeList = Array.isArray(rawList)
+    ? rawList
+    : Array.isArray((rawList as any)?.data)
+    ? (rawList as any).data
+    : [];
+
   return {
-    notifications: notificationsQuery.data || notifications,
+    notifications: safeList,
     unreadCount: unreadCountQuery.data ?? unreadCount,
     isLoading: notificationsQuery.isLoading,
     markAsRead: markReadMutation.mutateAsync,

@@ -69,12 +69,7 @@ export class AdminAdministratorsService {
 
     const [users, total] = await qb.getManyAndCount();
 
-    const mappedUsers = users.map((user) => {
-      // Omit sensitive data
-      const { password, verificationToken, passwordResetToken, ...safeUser } =
-        user;
-      return safeUser;
-    });
+    const mappedUsers = users.map((user) => this.mapSafeAdministrator(user));
 
     return {
       data: mappedUsers,
@@ -100,9 +95,17 @@ export class AdminAdministratorsService {
       throw new NotFoundException('Administrator not found');
     }
 
+    return this.mapSafeAdministrator(user);
+  }
+
+  private mapSafeAdministrator(user: User) {
     const { password, verificationToken, passwordResetToken, ...safeUser } =
       user;
-    return safeUser;
+    return {
+      ...safeUser,
+      createdAt: (user as any).createdAt || user.created_at,
+      updatedAt: (user as any).updatedAt || user.updated_at,
+    };
   }
 
   async createAdministrator(
@@ -168,9 +171,7 @@ export class AdminAdministratorsService {
 
       await queryRunner.commitTransaction();
 
-      const { password, verificationToken, passwordResetToken, ...safeUser } =
-        savedUser;
-      return safeUser;
+      return this.mapSafeAdministrator(savedUser);
     } catch (err) {
       await queryRunner.rollbackTransaction();
       throw err;
@@ -247,8 +248,7 @@ export class AdminAdministratorsService {
 
       await queryRunner.commitTransaction();
 
-      const { password, ...safeUser } = savedUser;
-      return safeUser;
+      return this.mapSafeAdministrator(savedUser);
     } catch (err) {
       await queryRunner.rollbackTransaction();
       throw err;
@@ -328,8 +328,7 @@ export class AdminAdministratorsService {
 
       await queryRunner.commitTransaction();
 
-      const { password, ...safeUser } = savedUser;
-      return safeUser;
+      return this.mapSafeAdministrator(savedUser);
     } catch (err) {
       await queryRunner.rollbackTransaction();
       throw err;

@@ -1,6 +1,6 @@
 'use client';
 
-import { format } from 'date-fns';
+import { formatDateSafe } from '@/lib/utils';
 import { SecurityEvent } from '@/hooks/use-security';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -58,7 +58,7 @@ export function SecurityEventDetailsDrawer({ event, open, onOpenChange }: Props)
               <div className="grid grid-cols-2 gap-4 bg-muted/30 p-4 rounded-xl border border-border/50">
                 <div>
                   <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Date & Time</div>
-                  <div className="font-medium">{format(new Date(event.createdAt), 'dd MMM yyyy, hh:mm:ss a')}</div>
+                  <div className="font-medium">{formatDateSafe(event.createdAt || (event as any).created_at, 'dd MMM yyyy, hh:mm:ss a')}</div>
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">IP Address</div>

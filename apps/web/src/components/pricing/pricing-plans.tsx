@@ -76,7 +76,7 @@ export function PricingPlans({
       if (Number(plan.price) === 0) {
         // Free tier checkout
         await subscriptionService.purchase(plan.id, 'FREE_PLAN_CHECKOUT');
-        toast.success(`${plan.name} plan activated successfully!`);
+        toast.success("Your subscription is active and your workspace is ready! Welcome to NexaSocial.");
         await refetchEntitlements();
         onPlanPurchased?.();
         return;
@@ -110,28 +110,23 @@ export function PricingPlans({
               gatewaySignature: paymentResult.razorpay_signature,
             });
 
-            toast.success('Payment verified & Subscription activated!', {
+            toast.success("Your subscription is active and your workspace is ready! Welcome to NexaSocial.", {
               id: 'pricing-verify',
-              description: `You are now subscribed to ${plan.name}. All features are unlocked!`,
             });
 
             await refetchEntitlements();
             onPlanPurchased?.();
           } catch (verifyErr: any) {
-            toast.error('Payment verification failed', {
+            toast.error("Your payment could not be completed. Please try again or select another payment method.", {
               id: 'pricing-verify',
-              description:
-                verifyErr?.response?.data?.message || 'Verification could not be completed.',
             });
           }
         },
         onDismiss: () => {
           toast.info('Checkout cancelled');
         },
-        onError: (err) => {
-          toast.error('Payment failed', {
-            description: err?.description || 'Could not complete payment transaction.',
-          });
+        onError: (_err) => {
+          toast.error("Your payment could not be completed. Please try again or select another payment method.");
         },
       });
     } catch (err: any) {
@@ -158,7 +153,7 @@ export function PricingPlans({
   };
 
   return (
-    <div className={`space-y-16 ${className}`}>
+    <div id="pricing-plans-section" className={`space-y-16 ${className}`}>
       {/* Header Section */}
       <div className="text-center space-y-4 max-w-3xl mx-auto">
         <Badge
@@ -320,11 +315,7 @@ export function PricingPlans({
                   {/* Pricing Display */}
                   <div className="flex items-baseline gap-1 pt-2">
                     <span className="text-4xl sm:text-5xl font-black font-mono gradient-text">
-                      {price === 0 && plan.name === 'Enterprise' ? (
-                        'Custom'
-                      ) : (
-                        `${currencySymbol}${price.toLocaleString()}`
-                      )}
+                      {`${currencySymbol}${price.toLocaleString()}`}
                     </span>
                     {price > 0 && (
                       <span className="text-xs text-muted-foreground font-mono">
@@ -434,7 +425,7 @@ export function PricingPlans({
                       </>
                     ) : isCurrent ? (
                       'Current Active Plan'
-                    ) : price === 0 && plan.name === 'Enterprise' ? (
+                    ) : price === 0 && (plan.name === 'Enterprise' || plan.name === 'Enterprise Plan' || plan.name?.toLowerCase().includes('enterprise')) ? (
                       <Link href="mailto:sales@nexasocial.com" className="flex items-center justify-center gap-2">
                         Contact Enterprise Sales
                         <ArrowRight className="w-4 h-4" />
@@ -448,9 +439,7 @@ export function PricingPlans({
                   </Button>
 
                   <p className="text-[11px] text-center text-muted-foreground font-mono">
-                    {price === 0
-                      ? 'Instant Access • Free Tier'
-                      : 'Razorpay Secured • Cancel Anytime'}
+                    Razorpay Secured • Cancel Anytime
                   </p>
                 </div>
               </div>
@@ -489,7 +478,7 @@ export function PricingPlans({
                         <div className="flex flex-col items-center">
                           <span>{p.name}</span>
                           <span className="text-[10px] font-mono text-muted-foreground font-normal lowercase">
-                            {Number(p.price) === 0 ? 'free' : `₹${Number(p.price)}/${p.interval}`}
+                            ₹{Number(p.price)}/{p.interval}
                           </span>
                         </div>
                       </th>

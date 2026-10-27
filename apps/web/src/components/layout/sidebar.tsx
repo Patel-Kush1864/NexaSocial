@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSidebarStore } from '@/stores/sidebar-store';
 import { useAuthStore } from '@/stores/auth-store';
+import { useWorkspaceStore } from '@/stores/workspace-store';
 import { getVisibleNavigation } from '@/config/navigation';
 import { WorkspaceSwitcher } from './workspace-switcher';
 import { Button } from '@/components/ui/button';
@@ -66,12 +67,16 @@ import { toast } from 'sonner';
 export function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggle } = useSidebarStore();
-  const { scope } = useAuthStore();
-  const { hasActiveSubscription } = useSubscriptionEntitlements();
+  const { scope, hasPermission } = useAuthStore();
+  const { currentWorkspace } = useWorkspaceStore();
+  const { hasActiveSubscription, isWorkspaceOwner } = useSubscriptionEntitlements();
+
+  const isPendingOnboarding = !hasActiveSubscription && !currentWorkspace;
 
   const isRouteLocked = (href: string) => {
     if (scope === 'PLATFORM') return false;
     if (hasActiveSubscription) return false;
+    if (isPendingOnboarding) return false; // Allow navigation to display onboarding guard
     // Allowed routes without subscription: dashboard, billing, settings, notifications
     const allowed = ['/dashboard', '/billing', '/settings', '/notifications'];
     return !allowed.some((allowedPath) => href === allowedPath || href.startsWith(`${allowedPath}/`));
@@ -118,7 +123,7 @@ export function Sidebar() {
 
       {/* Navigation Menu */}
       <div className="flex-1 px-3 py-2 space-y-4 overflow-y-auto">
-        {getVisibleNavigation({ scope, hasPermission: useAuthStore.getState().hasPermission }).map((section) => (
+        {getVisibleNavigation({ scope, hasPermission }).map((section) => (
           <div key={section.id} className="space-y-1">
             {!isCollapsed && section.label && (
               <h4 className="px-3 text-xs font-semibold text-muted-foreground/70 uppercase tracking-wider mb-2">
@@ -139,7 +144,9 @@ export function Sidebar() {
                     if (locked) {
                       e.preventDefault();
                       toast.info('Feature Locked', {
-                        description: 'Choose a subscription plan to unlock NexaSocial features.',
+                        description: isWorkspaceOwner
+                          ? 'Choose a subscription plan to unlock NexaSocial features.'
+                          : 'This workspace does not currently have an active subscription. Please contact the workspace owner.',
                       });
                     }
                   }}
@@ -196,7 +203,7 @@ export function Sidebar() {
               <>
                 <Lock className="w-4 h-4 text-amber-400" />
                 <span className="text-xs font-bold uppercase tracking-wider text-amber-300">
-                  Subscription Required
+                  {isWorkspaceOwner ? 'Subscription Required' : 'Workspace Inactive'}
                 </span>
               </>
             )}
@@ -204,14 +211,20 @@ export function Sidebar() {
           <p className="text-xs text-muted-foreground leading-relaxed">
             {hasActiveSubscription
               ? 'Multi-destination broadcasting and AI tools active.'
-              : 'Unlock unlimited live streaming, AI tools, and social channels.'}
+              : isWorkspaceOwner
+                ? 'Unlock unlimited live streaming, AI tools, and social channels.'
+                : 'Workspace features require an active owner subscription.'}
           </p>
           <Button
             asChild
             size="sm"
             className="w-full h-8 text-xs bg-gradient-to-r from-violet-600 to-indigo-600 font-semibold"
           >
-            <Link href="/billing">{hasActiveSubscription ? 'Manage Plan' : 'Subscribe Now'}</Link>
+            <Link href="/billing">
+              {hasActiveSubscription
+                ? (isWorkspaceOwner ? 'Manage Plan' : 'View Plan')
+                : (isWorkspaceOwner ? 'Subscribe Now' : 'Workspace Status')}
+            </Link>
           </Button>
         </div>
       )}

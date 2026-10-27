@@ -111,7 +111,8 @@ export function EmailManagementClient() {
         eventType: eventFilter !== 'ALL' ? eventFilter : undefined,
         recipient: searchRecipient.trim() || undefined,
       });
-      setLogs(res.logs || []);
+      const items = res.logs || res.data || [];
+      setLogs(items);
       setTotalLogs(res.total || 0);
       setTotalPages(res.totalPages || 1);
     } catch (err: any) {

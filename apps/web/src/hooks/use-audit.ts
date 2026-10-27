@@ -20,7 +20,8 @@ export interface AuditLog {
   ipAddress?: string;
   userAgent?: string;
   requestId?: string;
-  createdAt: string;
+  createdAt?: string;
+  created_at?: string;
   adminUser?: AuditLogAdminUser;
 }
 
@@ -58,7 +59,15 @@ export function useAuditLogs(params: AuditLogQueryParams) {
           'x-nexa-scope': 'PLATFORM',
         },
       });
-      return response.data;
+      const resData = response.data;
+      if (Array.isArray(resData?.data)) {
+        resData.data = resData.data.map((item) => ({
+          ...item,
+          createdAt: item.createdAt || item.created_at,
+          created_at: item.created_at || item.createdAt,
+        }));
+      }
+      return resData;
     },
   });
 
@@ -75,7 +84,12 @@ export function useAuditLogDetails(id: string | null) {
           'x-nexa-scope': 'PLATFORM',
         },
       });
-      return response.data;
+      const item = response.data;
+      if (item) {
+        item.createdAt = item.createdAt || item.created_at;
+        item.created_at = item.created_at || item.createdAt;
+      }
+      return item;
     },
     enabled: !!id,
   });

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { format } from 'date-fns';
+import { formatDateSafe } from '@/lib/utils';
 import {
   Table,
   TableBody,
@@ -88,7 +88,7 @@ export function AdminLoginsTable() {
                   onClick={() => setSelectedEvent(evt)}
                 >
                   <TableCell className="whitespace-nowrap">
-                    {format(new Date(evt.createdAt), 'dd MMM yyyy, hh:mm a')}
+                    {formatDateSafe(evt.createdAt || (evt as any).created_at, 'dd MMM yyyy, hh:mm a')}
                   </TableCell>
                   <TableCell className="font-medium">{evt.userEmail || '-'}</TableCell>
                   <TableCell>

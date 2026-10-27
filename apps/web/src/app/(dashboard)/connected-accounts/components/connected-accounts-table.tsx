@@ -1,6 +1,7 @@
 'use client';
 
-import { format, formatDistanceToNow } from 'date-fns';
+import { format } from 'date-fns';
+import { formatRelativeTime } from '@/lib/utils';
 import { 
   Table, 
   TableBody, 
@@ -202,13 +203,9 @@ export function ConnectedAccountsTable({ data, isLoading, onRowClick, onSort, so
                     <Link2 className="w-3 h-3" />
                     {format(new Date(account.connectedAt), 'MMM d, yyyy')}
                   </span>
-                  {account.lastSync ? (
-                    <span className="text-xs mt-0.5">
-                      Sync: {formatDistanceToNow(new Date(account.lastSync), { addSuffix: true })}
-                    </span>
-                  ) : (
-                    <span className="text-xs mt-0.5">Sync: Not available</span>
-                  )}
+                  <span className="text-xs mt-0.5">
+                    Sync: {formatRelativeTime(account.lastSync, { addSuffix: true }, 'Not available')}
+                  </span>
                 </div>
               </TableCell>
               <TableCell>
@@ -217,7 +214,7 @@ export function ConnectedAccountsTable({ data, isLoading, onRowClick, onSort, so
                     <span className="text-sm font-medium text-destructive">{account.errors.count} errors</span>
                     {account.errors.lastOccurredAt && (
                       <span className="text-xs text-muted-foreground">
-                        Last: {formatDistanceToNow(new Date(account.errors.lastOccurredAt), { addSuffix: true })}
+                        Last: {formatRelativeTime(account.errors.lastOccurredAt, { addSuffix: true })}
                       </span>
                     )}
                   </div>

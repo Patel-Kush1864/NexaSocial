@@ -1,7 +1,8 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument */
 import { Injectable, Logger } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { SubscriptionsService } from '../subscriptions.service';
+import { Workspace } from '../../workspaces/entities/workspace.entity';
 
 @Injectable()
 export class UsageLimitService {
@@ -10,6 +11,8 @@ export class UsageLimitService {
   constructor(
     private readonly subscriptionsService: SubscriptionsService,
     private readonly dataSource: DataSource,
+    @InjectRepository(Workspace)
+    private readonly workspaceRepository: Repository<Workspace>,
   ) { }
 
   private async getTableCount(
@@ -23,14 +26,12 @@ export class UsageLimitService {
       await queryRunner.release();
 
       if (!tableExists) {
-        // Fallback mock counts if other modules are not yet migrated
         this.logger.debug(
           `Table "${tableName}" does not exist. Returning mock count.`,
         );
         return 0;
       }
 
-      // Check count dynamically
       const result = await this.dataSource.query(
         `SELECT COUNT(*) as count FROM \`${tableName}\` WHERE \`${column}\` = ? AND deleted_at IS NULL`,
         [userId],
@@ -45,7 +46,8 @@ export class UsageLimitService {
   }
 
   async canCreateWorkspace(userId: string): Promise<boolean> {
-    const sub = await this.subscriptionsService.getCurrentSubscription(userId);
+    const sub = await this.subscriptionsService.findActiveSubscription(userId);
+    if (!sub || !sub.plan?.features) return false;
     const limit = sub.plan.features.workspaces;
 
     if (limit === -1) return true; // Unlimited
@@ -59,7 +61,8 @@ export class UsageLimitService {
   }
 
   async canAddMember(ownerId: string): Promise<boolean> {
-    const sub = await this.subscriptionsService.getCurrentSubscription(ownerId);
+    const sub = await this.subscriptionsService.findActiveSubscription(ownerId);
+    if (!sub || !sub.plan?.features) return false;
     const limit = sub.plan.features.teamMembers;
 
     if (limit === -1) return true;
@@ -82,34 +85,95 @@ export class UsageLimitService {
     return this.canAddMember(userId);
   }
 
-  async canConnectAccount(userId: string): Promise<boolean> {
-    const sub = await this.subscriptionsService.getCurrentSubscription(userId);
+  async canConnectAccount(userId: string, workspaceId?: string): Promise<boolean> {
+    let ownerId = userId;
+    if (workspaceId) {
+      const ws = await this.workspaceRepository.findOne({
+        where: { id: workspaceId },
+      });
+      if (ws) {
+        ownerId = ws.ownerId;
+      }
+    }
+
+    const sub = await this.subscriptionsService.findActiveSubscription(ownerId);
+    if (!sub || !sub.plan?.features) return false;
     const limit = sub.plan.features.socialAccounts;
 
     if (limit === -1) return true;
+
+    if (workspaceId) {
+      try {
+        const result = await this.dataSource.query(
+          `SELECT COUNT(*) as count FROM \`connected_accounts\` WHERE \`workspace_id\` = ? AND deleted_at IS NULL`,
+          [workspaceId],
+        );
+        const count = parseInt(result[0]?.count || '0', 10);
+        return count < limit;
+      } catch {
+        return true;
+      }
+    }
 
     const currentCount = await this.getTableCount('social_accounts', userId);
     return currentCount < limit;
   }
 
-  async canScheduleStream(userId: string): Promise<boolean> {
-    const sub = await this.subscriptionsService.getCurrentSubscription(userId);
-    return sub.plan.features.streamScheduling;
+  async canScheduleStream(userId: string, workspaceId?: string): Promise<boolean> {
+    let ownerId = userId;
+    if (workspaceId) {
+      const ws = await this.workspaceRepository.findOne({
+        where: { id: workspaceId },
+      });
+      if (ws) {
+        ownerId = ws.ownerId;
+      }
+    }
+    const sub = await this.subscriptionsService.findActiveSubscription(ownerId);
+    return !!sub?.plan?.features?.streamScheduling;
   }
 
-  async canUseAnalytics(userId: string): Promise<boolean> {
-    const sub = await this.subscriptionsService.getCurrentSubscription(userId);
-    return sub.plan.features.analytics;
+  async canUseAnalytics(userId: string, workspaceId?: string): Promise<boolean> {
+    let ownerId = userId;
+    if (workspaceId) {
+      const ws = await this.workspaceRepository.findOne({
+        where: { id: workspaceId },
+      });
+      if (ws) {
+        ownerId = ws.ownerId;
+      }
+    }
+    const sub = await this.subscriptionsService.findActiveSubscription(ownerId);
+    return !!sub?.plan?.features?.analytics;
   }
 
-  async canUseAI(userId: string): Promise<boolean> {
-    const sub = await this.subscriptionsService.getCurrentSubscription(userId);
-    return sub.plan.features.aiFeatures;
+  async canUseAI(userId: string, workspaceId?: string): Promise<boolean> {
+    let ownerId = userId;
+    if (workspaceId) {
+      const ws = await this.workspaceRepository.findOne({
+        where: { id: workspaceId },
+      });
+      if (ws) {
+        ownerId = ws.ownerId;
+      }
+    }
+    const sub = await this.subscriptionsService.findActiveSubscription(ownerId);
+    return !!sub?.plan?.features?.aiFeatures;
   }
 
-  async canCreateStream(ownerId: string): Promise<boolean> {
-    const sub = await this.subscriptionsService.getCurrentSubscription(ownerId);
-    if (!sub.plan.features?.liveStreaming) {
+  async canCreateStream(userId: string, workspaceId?: string): Promise<boolean> {
+    let ownerId = userId;
+    if (workspaceId) {
+      const ws = await this.workspaceRepository.findOne({
+        where: { id: workspaceId },
+      });
+      if (ws) {
+        ownerId = ws.ownerId;
+      }
+    }
+
+    const sub = await this.subscriptionsService.findActiveSubscription(ownerId);
+    if (!sub || !sub.plan?.features?.liveStreaming) {
       return false;
     }
 
@@ -122,8 +186,8 @@ export class UsageLimitService {
       const result = await this.dataSource.query(
         `SELECT COUNT(*) as count FROM \`live_streams\` ls
          INNER JOIN \`workspaces\` w ON ls.workspace_id = w.id
-         WHERE w.owner_id = ? AND ls.deleted_at IS NULL AND w.deleted_at IS NULL`,
-        [ownerId],
+         WHERE ${workspaceId ? 'ls.workspace_id = ?' : 'w.owner_id = ?'} AND ls.deleted_at IS NULL AND w.deleted_at IS NULL`,
+        [workspaceId || ownerId],
       );
       const count = parseInt(result[0]?.count || '0', 10);
       return count < limit;
@@ -132,13 +196,31 @@ export class UsageLimitService {
     }
   }
 
-  async canSchedulePost(userId: string): Promise<boolean> {
-    const sub = await this.subscriptionsService.getCurrentSubscription(userId);
-    return !!sub.plan.features?.streamScheduling;
+  async canSchedulePost(userId: string, workspaceId?: string): Promise<boolean> {
+    let ownerId = userId;
+    if (workspaceId) {
+      const ws = await this.workspaceRepository.findOne({
+        where: { id: workspaceId },
+      });
+      if (ws) {
+        ownerId = ws.ownerId;
+      }
+    }
+    const sub = await this.subscriptionsService.findActiveSubscription(ownerId);
+    return !!sub?.plan?.features?.streamScheduling;
   }
 
-  async canUseMediaLibrary(userId: string): Promise<boolean> {
-    const sub = await this.subscriptionsService.getCurrentSubscription(userId);
-    return sub.plan.features?.mediaLibrary ?? true;
+  async canUseMediaLibrary(userId: string, workspaceId?: string): Promise<boolean> {
+    let ownerId = userId;
+    if (workspaceId) {
+      const ws = await this.workspaceRepository.findOne({
+        where: { id: workspaceId },
+      });
+      if (ws) {
+        ownerId = ws.ownerId;
+      }
+    }
+    const sub = await this.subscriptionsService.findActiveSubscription(ownerId);
+    return sub?.plan?.features?.mediaLibrary ?? true;
   }
 }

@@ -5,12 +5,13 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   Inject,
   forwardRef,
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository, LessThan, IsNull } from 'typeorm';
 import {
   UserSubscription,
   SubscriptionStatus,
@@ -19,6 +20,10 @@ import { PlansService } from '../plans/plans.service';
 import { PaymentsService } from '../payments/payments.service';
 import { ActivityLog } from '../users/entities/activity-log.entity';
 import { Workspace } from '../workspaces/entities/workspace.entity';
+import {
+  WorkspaceMember,
+  WorkspaceRole,
+} from '../workspace-members/entities/workspace-member.entity';
 import { LoggerServiceWrapper } from '../logger/logger.service';
 import { MailService } from '../mail/mail.service';
 import { DataSource } from 'typeorm';
@@ -40,6 +45,8 @@ export class SubscriptionsService {
     private readonly mailService: MailService,
     @InjectRepository(Workspace)
     private readonly workspaceRepository: Repository<Workspace>,
+    @InjectRepository(WorkspaceMember)
+    private readonly memberRepository: Repository<WorkspaceMember>,
     private readonly dataSource: DataSource,
   ) { }
 
@@ -82,10 +89,7 @@ export class SubscriptionsService {
     const now = new Date();
     let endDate: Date | null = null;
 
-    if (
-      plan.name !== 'Enterprise' &&
-      !(Number(plan.price) === 0 && plan.interval === 'unlimited')
-    ) {
+    if (plan.interval !== 'unlimited') {
       if (plan.durationDays && plan.durationDays > 0) {
         endDate = dayjs(now).add(plan.durationDays, 'day').toDate();
       } else if (plan.interval === 'year') {
@@ -108,6 +112,7 @@ export class SubscriptionsService {
     });
     await this.userSubRepository.save(sub);
 
+    // Subscription activated successfully. Workspace creation is performed by the owner post-purchase.
     this.loggerService.log(
       `Activated subscription for User ${userId}, Plan ${plan.name}`,
       'SubscriptionsService',
@@ -155,6 +160,82 @@ export class SubscriptionsService {
     return sub;
   }
 
+  async ensureOwnerWorkspace(
+    userId: string,
+    workspaceName?: string,
+  ): Promise<Workspace | null> {
+    // 1. Check if user already owns an active workspace
+    const existing = await this.workspaceRepository.findOne({
+      where: { ownerId: userId, deleted_at: IsNull() },
+    });
+    if (existing) {
+      // Ensure owner membership exists
+      const member = await this.memberRepository.findOne({
+        where: { workspaceId: existing.id, userId },
+      });
+      if (!member) {
+        await this.memberRepository.save(
+          this.memberRepository.create({
+            workspaceId: existing.id,
+            userId,
+            role: WorkspaceRole.OWNER,
+          }),
+        );
+      }
+      return existing;
+    }
+
+    // Do not automatically create a workspace without a user-provided name
+    if (!workspaceName || !workspaceName.trim()) {
+      return null;
+    }
+
+    const rawName = workspaceName.trim();
+    const cleanSlug =
+      rawName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)+/g, '') || 'workspace';
+    const randSuffix = Math.random().toString(36).substring(2, 6);
+    const slug = `${cleanSlug}-${randSuffix}`;
+
+    const workspace = this.workspaceRepository.create({
+      name: rawName,
+      ownerId: userId,
+      slug,
+      status: 'ACTIVE',
+    });
+    const savedWorkspace = await this.workspaceRepository.save(workspace);
+
+    // Create workspace_members record with WORKSPACE_OWNER role
+    const newMember = this.memberRepository.create({
+      workspaceId: savedWorkspace.id,
+      userId,
+      role: WorkspaceRole.OWNER,
+    });
+    await this.memberRepository.save(newMember);
+
+    this.loggerService.log(
+      `Workspace provisioned after subscription activation: ${savedWorkspace.name} (ID: ${savedWorkspace.id}) for Owner ${userId}`,
+      'SubscriptionsService',
+      'application',
+    );
+
+    await this.activityLogRepository.save(
+      this.activityLogRepository.create({
+        userId,
+        action: 'WORKSPACE_CREATED',
+        metadata: {
+          workspaceId: savedWorkspace.id,
+          name: savedWorkspace.name,
+          slug: savedWorkspace.slug,
+        },
+      }),
+    );
+
+    return savedWorkspace;
+  }
+
   async findActiveSubscription(
     userId: string,
   ): Promise<UserSubscription | null> {
@@ -162,12 +243,21 @@ export class SubscriptionsService {
       where: [
         { userId, status: SubscriptionStatus.ACTIVE },
         { userId, status: SubscriptionStatus.CANCELLED },
+        { userId, status: SubscriptionStatus.TRIAL },
       ],
       relations: { plan: true },
       order: { created_at: 'DESC' },
     });
 
     if (!sub) {
+      return null;
+    }
+
+    if (
+      sub.status !== SubscriptionStatus.ACTIVE &&
+      sub.status !== SubscriptionStatus.CANCELLED &&
+      sub.status !== SubscriptionStatus.TRIAL
+    ) {
       return null;
     }
 
@@ -181,6 +271,18 @@ export class SubscriptionsService {
     return sub;
   }
 
+  async findActiveSubscriptionForWorkspace(
+    workspaceId: string,
+  ): Promise<UserSubscription | null> {
+    const workspace = await this.workspaceRepository.findOne({
+      where: { id: workspaceId },
+    });
+    if (!workspace) {
+      return null;
+    }
+    return this.findActiveSubscription(workspace.ownerId);
+  }
+
   async getCurrentSubscription(userId: string): Promise<UserSubscription> {
     const sub = await this.findActiveSubscription(userId);
     if (!sub) {
@@ -189,13 +291,135 @@ export class SubscriptionsService {
     return sub;
   }
 
-  async getEntitlements(userId: string) {
-    const activeSub = await this.findActiveSubscription(userId);
+  async getCurrentSubscriptionForWorkspace(
+    workspaceId: string,
+  ): Promise<UserSubscription> {
+    const sub = await this.findActiveSubscriptionForWorkspace(workspaceId);
+    if (!sub) {
+      throw new NotFoundException('No active subscription found for workspace');
+    }
+    return sub;
+  }
+
+  async getEntitlements(userId: string, workspaceId?: string) {
+    let targetWorkspace: Workspace | null = null;
+    let isWorkspaceOwner = true;
+    let workspaceRole: WorkspaceRole = WorkspaceRole.OWNER;
+    let targetSubscriberId = userId;
+    let activeSub: UserSubscription | null = null;
+
+    if (workspaceId) {
+      targetWorkspace = await this.workspaceRepository.findOne({
+        where: { id: workspaceId },
+      });
+
+      let member = targetWorkspace
+        ? await this.memberRepository.findOne({
+          where: { workspaceId: targetWorkspace.id, userId },
+        })
+        : null;
+
+      let isOwner =
+        targetWorkspace?.ownerId === userId ||
+        member?.role === WorkspaceRole.OWNER;
+
+      // If workspace is not found or user is not a member (e.g. stale header),
+      // look for user's legitimate active workspace membership instead of failing with 403
+      if (!targetWorkspace || (!isOwner && !member)) {
+        const memberships = await this.memberRepository.find({
+          where: { userId },
+          relations: { workspace: true },
+          order: { created_at: 'ASC' },
+        });
+        const validMembership = memberships.find(
+          (m) => m.workspace && !m.workspace.deleted_at,
+        );
+
+        if (validMembership && validMembership.workspace) {
+          targetWorkspace = validMembership.workspace;
+          member = validMembership;
+          isOwner =
+            targetWorkspace.ownerId === userId ||
+            validMembership.role === WorkspaceRole.OWNER;
+        } else if (!targetWorkspace) {
+          throw new NotFoundException('Workspace not found');
+        } else {
+          throw new ForbiddenException(
+            'You are not a member of this workspace',
+          );
+        }
+      }
+
+      isWorkspaceOwner = isOwner;
+      workspaceRole =
+        member?.role || (isOwner ? WorkspaceRole.OWNER : WorkspaceRole.VIEWER);
+
+      // Subscription belongs to the workspace owner
+      targetSubscriberId = targetWorkspace.ownerId;
+      activeSub = await this.findActiveSubscription(targetSubscriberId);
+    } else {
+      // Check personal subscription first
+      const personalSub = await this.findActiveSubscription(userId);
+      if (personalSub) {
+        activeSub = personalSub;
+        // Check if user already owns an existing workspace
+        const existingWorkspace = await this.workspaceRepository.findOne({
+          where: { ownerId: userId, deleted_at: IsNull() },
+        });
+        if (existingWorkspace) {
+          targetWorkspace = existingWorkspace;
+          targetSubscriberId = userId;
+          isWorkspaceOwner = true;
+          workspaceRole = WorkspaceRole.OWNER;
+        } else {
+          // Subscription is active, but owner has not created a workspace yet. Do NOT auto-create!
+          targetWorkspace = null;
+          targetSubscriberId = userId;
+          isWorkspaceOwner = true;
+          workspaceRole = WorkspaceRole.OWNER;
+        }
+      } else {
+        // If user has no personal subscription, check if they belong to any active workspace
+        const memberships =
+          (await this.memberRepository.find({
+            where: { userId },
+            relations: { workspace: true },
+            order: { created_at: 'ASC' },
+          })) || [];
+
+        if (memberships.length > 0 && memberships[0].workspace) {
+          targetWorkspace = memberships[0].workspace;
+          targetSubscriberId = memberships[0].workspace.ownerId;
+          isWorkspaceOwner =
+            memberships[0].workspace.ownerId === userId ||
+            memberships[0].role === WorkspaceRole.OWNER;
+          workspaceRole = memberships[0].role;
+        }
+
+        for (const m of memberships) {
+          if (m.workspace && !m.workspace.deleted_at) {
+            const ownerSub = await this.findActiveSubscription(
+              m.workspace.ownerId,
+            );
+            if (ownerSub) {
+              targetWorkspace = m.workspace;
+              targetSubscriberId = m.workspace.ownerId;
+              isWorkspaceOwner =
+                m.workspace.ownerId === userId ||
+                m.role === WorkspaceRole.OWNER;
+              workspaceRole = m.role;
+              activeSub = ownerSub;
+              break;
+            }
+          }
+        }
+      }
+    }
 
     // Retrieve most recent payment if any
     let latestPayment: any = null;
     try {
-      const history = await this.paymentsService.getHistory(userId);
+      const history = await this.paymentsService.getHistory(targetSubscriberId);
       if (history && history.length > 0) {
         latestPayment = history[0];
       }
@@ -221,6 +445,11 @@ export class SubscriptionsService {
         endDate: activeSub.endDate,
         cancelAtPeriodEnd: activeSub.cancelAtPeriodEnd,
         features: activeSub.plan.features,
+        workspaceId: targetWorkspace?.id || null,
+        workspaceName: targetWorkspace?.name || null,
+        workspaceOwnerId: targetWorkspace?.ownerId || null,
+        isWorkspaceOwner,
+        workspaceRole,
         latestPayment: latestPayment
           ? {
             id: latestPayment.id,
@@ -242,7 +471,7 @@ export class SubscriptionsService {
       status = 'FAILED';
     } else {
       const lastSub = await this.userSubRepository.findOne({
-        where: { userId },
+        where: { userId: targetSubscriberId },
         relations: { plan: true },
         order: { created_at: 'DESC' },
       });
@@ -262,6 +491,11 @@ export class SubscriptionsService {
       endDate: null,
       cancelAtPeriodEnd: false,
       features: null,
+      workspaceId: targetWorkspace?.id || null,
+      workspaceName: targetWorkspace?.name || null,
+      workspaceOwnerId: targetWorkspace?.ownerId || null,
+      isWorkspaceOwner,
+      workspaceRole,
       latestPayment: latestPayment
         ? {
           id: latestPayment.id,
@@ -376,7 +610,9 @@ export class SubscriptionsService {
         subscriptionId: sub.id,
       });
     } catch (e: any) {
-      this.logger.error(`Failed to send admin cancellation email: ${e.message}`);
+      this.logger.error(
+        `Failed to send admin cancellation email: ${e.message}`,
+      );
     }
 
     return sub;

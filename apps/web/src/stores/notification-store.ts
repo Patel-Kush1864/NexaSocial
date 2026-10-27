@@ -25,38 +25,56 @@ export const useNotificationStore = create<NotificationState>((set) => ({
   unreadCount: 0,
   isDropdownOpen: false,
 
-  setNotifications: (notifications) => set({ notifications }),
+  setNotifications: (notifications) =>
+    set({
+      notifications: Array.isArray(notifications)
+        ? notifications
+        : Array.isArray((notifications as any)?.data)
+        ? (notifications as any).data
+        : [],
+    }),
 
-  setUnreadCount: (count) => set({ unreadCount: count }),
+  setUnreadCount: (count) =>
+    set({ unreadCount: typeof count === 'number' && !isNaN(count) ? count : 0 }),
 
   addNotification: (notification) =>
     set((state) => ({
-      notifications: [notification, ...state.notifications],
+      notifications: [
+        notification,
+        ...(Array.isArray(state.notifications) ? state.notifications : []),
+      ],
       unreadCount: state.unreadCount + 1,
     })),
 
   markAsRead: (id) =>
-    set((state) => ({
-      notifications: state.notifications.map((n) =>
-        n.id === id ? { ...n, isRead: true } : n,
-      ),
-      unreadCount: Math.max(0, state.unreadCount - 1),
-    })),
+    set((state) => {
+      const list = Array.isArray(state.notifications) ? state.notifications : [];
+      return {
+        notifications: list.map((n) =>
+          n.id === id ? { ...n, isRead: true } : n,
+        ),
+        unreadCount: Math.max(0, state.unreadCount - 1),
+      };
+    }),
 
   markAllAsRead: () =>
-    set((state) => ({
-      notifications: state.notifications.map((n) => ({
-        ...n,
-        isRead: true,
-      })),
-      unreadCount: 0,
-    })),
+    set((state) => {
+      const list = Array.isArray(state.notifications) ? state.notifications : [];
+      return {
+        notifications: list.map((n) => ({
+          ...n,
+          isRead: true,
+        })),
+        unreadCount: 0,
+      };
+    }),
 
   removeNotification: (id) =>
     set((state) => {
-      const notification = state.notifications.find((n) => n.id === id);
+      const list = Array.isArray(state.notifications) ? state.notifications : [];
+      const notification = list.find((n) => n.id === id);
       return {
-        notifications: state.notifications.filter((n) => n.id !== id),
+        notifications: list.filter((n) => n.id !== id),
         unreadCount:
           notification && !notification.isRead
             ? Math.max(0, state.unreadCount - 1)

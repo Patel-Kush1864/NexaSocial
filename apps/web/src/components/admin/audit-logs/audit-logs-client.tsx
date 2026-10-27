@@ -110,9 +110,9 @@ export function AuditLogsClient() {
         </div>
       </div>
 
-      <div className="rounded-md border bg-card">
+      <div className="rounded-xl border border-border/50 overflow-hidden glass-panel shadow-sm">
         <Table>
-          <TableHeader>
+          <TableHeader className="bg-muted/30">
             <TableRow>
               <TableHead>Date</TableHead>
               <TableHead>Admin</TableHead>
@@ -166,10 +166,13 @@ export function AuditLogsClient() {
                   className="cursor-pointer hover:bg-muted/50"
                   onClick={() => setSelectedLogId(log.id)}
                 >
-                  <TableCell className="whitespace-nowrap">
-                    {log.createdAt && !isNaN(new Date(log.createdAt).getTime())
-                      ? format(new Date(log.createdAt), 'dd MMM yyyy, hh:mm a')
-                      : '-'}
+                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                    {(() => {
+                      const rawDate = log.createdAt || log.created_at;
+                      return rawDate && !isNaN(new Date(rawDate).getTime())
+                        ? format(new Date(rawDate), 'dd MMM yyyy, hh:mm a')
+                        : '-';
+                    })()}
                   </TableCell>
                   <TableCell>
                     {log.adminUser ? (

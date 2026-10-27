@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -67,6 +68,23 @@ export class WorkspaceMembersService {
     memberId: string,
     performerId: string,
   ): Promise<void> {
+    const performer = await this.memberRepository.findOne({
+      where: { workspaceId, userId: performerId },
+    });
+    const workspace = await this.workspaceRepository.findOne({
+      where: { id: workspaceId },
+    });
+    const isOwner =
+      workspace?.ownerId === performerId ||
+      performer?.role === WorkspaceRole.OWNER;
+    const isManager = performer?.role === WorkspaceRole.MANAGER;
+
+    if (!isOwner && !isManager) {
+      throw new ForbiddenException(
+        'Only authorized workspace administrators can manage team members.',
+      );
+    }
+
     const member = await this.memberRepository.findOne({
       where: { id: memberId, workspaceId },
       relations: { user: true },
@@ -79,9 +97,18 @@ export class WorkspaceMembersService {
       throw new BadRequestException('Cannot remove the workspace owner');
     }
 
+    if (
+      performer &&
+      performer.role === WorkspaceRole.MANAGER &&
+      member.role === WorkspaceRole.MANAGER
+    ) {
+      throw new ForbiddenException(
+        'Only authorized workspace administrators can manage team members.',
+      );
+    }
+
     await this.memberRepository.remove(member);
 
-    const workspace = await this.workspaceRepository.findOne({ where: { id: workspaceId } });
     if (member.user?.email) {
       const userName = `${member.user.firstName || ''} ${member.user.lastName || ''}`.trim() || member.user.email;
       await this.mailService.sendMail({
@@ -115,6 +142,33 @@ export class WorkspaceMembersService {
     role: WorkspaceRole,
     performerId: string,
   ): Promise<WorkspaceMember> {
+    const performer = await this.memberRepository.findOne({
+      where: { workspaceId, userId: performerId },
+    });
+    const workspace = await this.workspaceRepository.findOne({
+      where: { id: workspaceId },
+    });
+    const isOwner =
+      workspace?.ownerId === performerId ||
+      performer?.role === WorkspaceRole.OWNER;
+
+    if (!isOwner) {
+      throw new ForbiddenException(
+        'Only authorized workspace administrators can manage team members.',
+      );
+    }
+
+    const validRoles = [
+      WorkspaceRole.MANAGER,
+      WorkspaceRole.CREATOR,
+      WorkspaceRole.VIEWER,
+    ];
+    if (!validRoles.includes(role)) {
+      throw new ForbiddenException(
+        'You cannot assign this role. Please select a role you are authorized to assign.',
+      );
+    }
+
     const member = await this.memberRepository.findOne({
       where: { id: memberId, workspaceId },
     });
@@ -132,7 +186,6 @@ export class WorkspaceMembersService {
     member.role = role;
     await this.memberRepository.save(member);
 
-    const workspace = await this.workspaceRepository.findOne({ where: { id: workspaceId } });
     const memberWithUser = await this.memberRepository.findOne({
       where: { id: member.id },
       relations: { user: true },
@@ -199,11 +252,17 @@ export class WorkspaceMembersService {
     );
   }
 
-  async findMembers(workspaceId: string): Promise<WorkspaceMember[]> {
-    return this.memberRepository.find({
+  async findMembers(workspaceId: string): Promise<any[]> {
+    const members = await this.memberRepository.find({
       where: { workspaceId },
       relations: { user: true },
     });
+    return members.map((m) => ({
+      ...m,
+      joinedAt: m.joinedAt || (m as any).joined_at || m.created_at,
+      createdAt: m.created_at || (m as any).createdAt,
+      updatedAt: m.updated_at || (m as any).updatedAt,
+    }));
   }
 
   async findMemberByUser(

@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, Building2, CreditCard, Package, Share2, Radio, Activity as ActivityIcon } from 'lucide-react';
+import { User, Building2, CreditCard, Package, Share2, Radio, Activity as ActivityIcon, Bell } from 'lucide-react';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { PlatformActivity } from '@/types';
@@ -25,6 +25,8 @@ const getCategoryDetails = (category: string) => {
       return { icon: <Share2 className="w-4 h-4 text-rose-500" />, bg: 'bg-rose-500/10', label: 'Social' };
     case 'STREAM':
       return { icon: <Radio className="w-4 h-4 text-indigo-500" />, bg: 'bg-indigo-500/10', label: 'Streams' };
+    case 'NOTIFICATIONS':
+      return { icon: <Bell className="w-4 h-4 text-violet-500" />, bg: 'bg-violet-500/10', label: 'Notifications' };
     default:
       return { icon: <ActivityIcon className="w-4 h-4 text-slate-500" />, bg: 'bg-slate-500/10', label: 'General' };
   }
@@ -37,9 +39,27 @@ export function ActivityRow({ activity, onClick }: ActivityRowProps) {
   let description = activity.description;
   if (!description) {
     if (activity.action === 'WORKSPACE_CREATED' && activity.metadata?.name) {
-      description = `${activity.metadata.name} workspace created`;
+      description = `Workspace "${activity.metadata.name}" created`;
+    } else if (activity.action === 'PAYMENT_SUCCESS' && activity.metadata?.amount) {
+      description = `Payment received ₹${activity.metadata.amount}`;
     } else if (activity.action === 'PAYMENT_RECEIVED' && activity.metadata?.amount) {
       description = `Payment received ${activity.metadata.currency === 'usd' ? '$' : '₹'}${activity.metadata.amount}`;
+    } else if (activity.action === 'SUBSCRIPTION_ACTIVATED') {
+      description = activity.metadata?.planName
+        ? `${activity.metadata.planName} subscription activated`
+        : 'Subscription activated';
+    } else if (activity.action === 'STREAM_CREATED' && activity.metadata?.title) {
+      description = `Stream "${activity.metadata.title}" created`;
+    } else if (activity.action === 'STREAM_STARTED') {
+      description = 'Live stream broadcast started';
+    } else if (activity.action === 'STREAM_STOPPED') {
+      description = activity.metadata?.durationSeconds
+        ? `Live stream ended (${activity.metadata.durationSeconds}s)`
+        : 'Live stream ended';
+    } else if (activity.action === 'STREAM_DELETED' && activity.metadata?.title) {
+      description = `Stream "${activity.metadata.title}" deleted`;
+    } else if (activity.action === 'STREAM_UPDATED' && activity.metadata?.title) {
+      description = `Stream "${activity.metadata.title}" updated`;
     } else {
       description = activity.action.replace(/_/g, ' ').toLowerCase();
       // Capitalize first letter

@@ -29,6 +29,8 @@ async function bootstrap() {
         'Authorization',
         'Accept',
         'X-Requested-With',
+        'x-workspace-id',
+        'X-Workspace-Id',
       ],
     });
 

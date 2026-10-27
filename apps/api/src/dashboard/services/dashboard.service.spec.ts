@@ -6,6 +6,10 @@ import { WorkspaceMember } from '../../workspace-members/entities/workspace-memb
 import { ConnectedAccount } from '../../social/entities/connected-account.entity';
 import { LiveStream } from '../../livestreams/entities/livestream.entity';
 import { StreamPlatform } from '../../stream-platforms/entities/stream-platform.entity';
+import { User } from '../../users/entities/user.entity';
+import { Payment } from '../../payments/entities/payment.entity';
+import { UserSubscription } from '../../subscriptions/entities/user-subscription.entity';
+import { SocialAnalyticsSnapshot } from '../entities/social-analytics-snapshot.entity';
 import { SubscriptionsService } from '../../subscriptions/subscriptions.service';
 import { NotificationsService } from '../../notifications/services/notifications.service';
 import { ActivityService } from '../../activity/services/activity.service';
@@ -27,11 +31,25 @@ describe('DashboardService', () => {
     findOne: jest.fn(),
     find: jest.fn(),
     count: jest.fn().mockResolvedValue(5),
+    createQueryBuilder: jest.fn(() => ({
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      groupBy: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getRawMany: jest.fn().mockResolvedValue([]),
+      getRawOne: jest.fn().mockResolvedValue(null),
+    })),
   });
 
   const mockSubscriptionsService = () => ({
     getCurrentSubscription: jest.fn().mockResolvedValue({
       plan: { name: 'Professional', features: {} },
+      status: 'ACTIVE',
+    }),
+    findActiveSubscription: jest.fn().mockResolvedValue({
+      plan: { name: 'Professional' },
       status: 'ACTIVE',
     }),
   });
@@ -64,9 +82,19 @@ describe('DashboardService', () => {
           provide: getRepositoryToken(ConnectedAccount),
           useFactory: mockRepository,
         },
+        {
+          provide: getRepositoryToken(SocialAnalyticsSnapshot),
+          useFactory: mockRepository,
+        },
         { provide: getRepositoryToken(LiveStream), useFactory: mockRepository },
         {
           provide: getRepositoryToken(StreamPlatform),
+          useFactory: mockRepository,
+        },
+        { provide: getRepositoryToken(User), useFactory: mockRepository },
+        { provide: getRepositoryToken(Payment), useFactory: mockRepository },
+        {
+          provide: getRepositoryToken(UserSubscription),
           useFactory: mockRepository,
         },
         { provide: SubscriptionsService, useFactory: mockSubscriptionsService },

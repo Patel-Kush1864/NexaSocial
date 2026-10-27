@@ -208,24 +208,6 @@ export class AdminController {
     return this.service.getRefunds(query);
   }
 
-  // --- SOCIAL PLATFORMS CONFIG ---
-  @Get('social-platforms')
-  @RequirePermission('platform.social_platforms.view')
-  async getSocialPlatforms() {
-    return this.service.getSocialPlatforms();
-  }
-
-  @Put('social-platforms/:id')
-  @RequirePermission('platform.social_platforms.manage')
-  async updateSocialPlatformConfig(
-    @CurrentUser() user: CurrentUserType,
-    @Param('id') id: string,
-    @Body() dto: UpdateSocialPlatformConfigDto,
-  ) {
-    if (!user) throw new BadRequestException('User context missing');
-    return this.service.updateSocialPlatformConfig(id, dto, user.id);
-  }
-
   // --- SYSTEM HEALTH MONITORING ---
   @Get('system/health')
   @RequirePermission('platform.system_health.view')

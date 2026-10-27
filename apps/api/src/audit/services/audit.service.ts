@@ -117,13 +117,13 @@ export class AuditService {
     }
 
     if (dateFrom) {
-      query.andWhere('log.createdAt >= :dateFrom', {
+      query.andWhere('log.created_at >= :dateFrom', {
         dateFrom: new Date(dateFrom),
       });
     }
 
     if (dateTo) {
-      query.andWhere('log.createdAt <= :dateTo', { dateTo: new Date(dateTo) });
+      query.andWhere('log.created_at <= :dateTo', { dateTo: new Date(dateTo) });
     }
 
     if (search) {
@@ -136,6 +136,7 @@ export class AuditService {
     // Map frontend sort keys to database columns securely
     const sortFieldMap: Record<string, string> = {
       createdAt: 'log.created_at',
+      created_at: 'log.created_at',
       action: 'log.action',
       module: 'log.module',
     };
@@ -147,9 +148,10 @@ export class AuditService {
 
     const [data, total] = await query.getManyAndCount();
 
-    // Ensure data is sanitized before returning, just as a safety net
+    // Ensure data is sanitized before returning, and supply both createdAt and created_at
     const sanitizedData = data.map((log) => {
       if (log.metadata) log.metadata = this.sanitizeMetadata(log.metadata);
+      (log as any).createdAt = log.created_at;
       return log;
     });
 
@@ -176,6 +178,7 @@ export class AuditService {
     if (log.metadata) {
       log.metadata = this.sanitizeMetadata(log.metadata);
     }
+    (log as any).createdAt = log.created_at;
 
     return log;
   }

@@ -11,6 +11,14 @@ import { LoggerServiceWrapper } from '../../src/logger/logger.service';
 import { createMockRepository } from '../mocks/repository.mock';
 import { createMockUser } from '../fixtures/user.fixture';
 
+import { ActivityLog } from '../../src/users/entities/activity-log.entity';
+import { DataSource } from 'typeorm';
+import { AuditService } from '../../src/audit/services/audit.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { MailService } from '../../src/mail/mail.service';
+import { WorkspacesService } from '../../src/workspaces/services/workspaces.service';
+import { InvitationsService } from '../../src/invitations/services/invitations.service';
+
 describe('Auth -> Users Module Integration', () => {
   let authService: AuthService;
   let usersService: UsersService;
@@ -35,12 +43,49 @@ describe('Auth -> Users Module Integration', () => {
         { provide: getRepositoryToken(Role), useValue: roleRepo },
         { provide: getRepositoryToken(UserSession), useValue: sessionRepo },
         {
+          provide: getRepositoryToken(ActivityLog),
+          useValue: createMockRepository(),
+        },
+        {
+          provide: DataSource,
+          useValue: { query: jest.fn().mockResolvedValue([]) },
+        },
+        {
+          provide: AuditService,
+          useValue: { logSecurityEvent: jest.fn(), logAction: jest.fn() },
+        },
+        {
           provide: JwtService,
           useValue: { sign: jest.fn().mockReturnValue('token-xyz') },
         },
         {
           provide: LoggerServiceWrapper,
           useValue: { log: jest.fn(), error: jest.fn() },
+        },
+        {
+          provide: EventEmitter2,
+          useValue: { emit: jest.fn() },
+        },
+        {
+          provide: MailService,
+          useValue: {
+            sendMail: jest.fn().mockResolvedValue(true),
+            sendWelcomeEmail: jest.fn().mockResolvedValue(true),
+            sendEmailVerification: jest.fn().mockResolvedValue(true),
+          },
+        },
+        {
+          provide: WorkspacesService,
+          useValue: {
+            createDefaultWorkspace: jest.fn().mockResolvedValue({ id: 'ws_default_1', name: "Default's Workspace" }),
+          },
+        },
+        {
+          provide: InvitationsService,
+          useValue: {
+            getInvitationByToken: jest.fn(),
+            accept: jest.fn(),
+          },
         },
       ],
     }).compile();

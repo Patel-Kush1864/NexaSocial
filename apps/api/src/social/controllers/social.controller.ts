@@ -53,6 +53,13 @@ export class SocialController {
     return { url: result.url, authUrl: result.url };
   }
 
+  @Public()
+  @SkipSubscriptionCheck()
+  @Get('preflight/:platform')
+  getPreflight(@Param('platform') platform: string) {
+    return this.socialService.getPreflightDiagnostics(platform);
+  }
+
   // OAuth Redirect Callback (Public)
   @Public()
   @SkipSubscriptionCheck()
@@ -68,14 +75,28 @@ export class SocialController {
   ) {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
 
+    console.log(
+      `[SocialController] OAuth redirect callback received for platform: ${platform} | Has Code: ${Boolean(code)} | Has State: ${Boolean(state)} | Has Error: ${Boolean(error)}`,
+    );
+
     if (error) {
-      const errorMsg =
+      const rawErrorMsg =
         errorDescription ||
         errorReason ||
         error ||
-        'OAuth authorization cancelled or failed';
+        'OAuth authorization cancelled or denied by user';
+      // Sanitize any sensitive tokens/secrets
+      const sanitizedError = rawErrorMsg
+        .replace(/client_secret=[^&\s]+/gi, 'client_secret=***')
+        .replace(/access_token=[^&\s]+/gi, 'access_token=***')
+        .replace(/code=[^&\s]+/gi, 'code=***');
+
+      console.warn(
+        `[SocialController] OAuth provider returned error during callback: ${sanitizedError}`,
+      );
+
       return res.redirect(
-        `${frontendUrl}/social?error=${encodeURIComponent(errorMsg)}`,
+        `${frontendUrl}/social?error=${encodeURIComponent(sanitizedError)}`,
       );
     }
 
@@ -92,11 +113,18 @@ export class SocialController {
         `${frontendUrl}/social?connected=${platform.toLowerCase()}`,
       );
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const rawMsg = err instanceof Error ? err.message : String(err);
+      const sanitizedMsg = (rawMsg || 'OAuth connection failed')
+        .replace(/client_secret=[^&\s]+/gi, 'client_secret=***')
+        .replace(/access_token=[^&\s]+/gi, 'access_token=***')
+        .replace(/code=[^&\s]+/gi, 'code=***');
+
+      console.error(
+        `[SocialController] OAuth callback handling failed for ${platform}: ${sanitizedMsg}`,
+      );
+
       return res.redirect(
-        `${frontendUrl}/social?error=${encodeURIComponent(
-          msg || 'OAuth connection failed',
-        )}`,
+        `${frontendUrl}/social?error=${encodeURIComponent(sanitizedMsg)}`,
       );
     }
   }

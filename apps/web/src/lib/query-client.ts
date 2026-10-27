@@ -39,6 +39,7 @@ export const queryKeys = {
     all: ['workspaces'] as const,
     detail: (id: string) => ['workspaces', id] as const,
     members: (id: string) => ['workspaces', id, 'members'] as const,
+    invitations: (id: string) => ['workspaces', id, 'invitations'] as const,
     dashboard: (id: string) => ['workspaces', id, 'dashboard'] as const,
   },
 
@@ -62,6 +63,8 @@ export const queryKeys = {
 
   // Dashboard
   dashboard: {
+    overview: (workspaceId: string, range = '7d') =>
+      ['dashboard', 'overview', workspaceId, range] as const,
     summary: (workspaceId: string) =>
       ['dashboard', 'summary', workspaceId] as const,
     statistics: (workspaceId: string) =>

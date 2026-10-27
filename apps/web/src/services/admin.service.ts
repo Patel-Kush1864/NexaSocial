@@ -223,22 +223,22 @@ export const adminService = {
 
   // ── Subscriptions ───────────────────────
   async getPlatformSubscriptions(params?: Record<string, unknown>) {
-    const { data } = await apiClient.get('/subscriptions/platform/all', { params });
+    const { data } = await apiClient.get('/subscriptions', { params });
     return data;
   },
 
   async getPlatformSubscriptionDetails(id: string) {
-    const { data } = await apiClient.get(`/subscriptions/platform/${id}`);
+    const { data } = await apiClient.get(`/subscriptions/${id}`);
     return data;
   },
 
   async getPlatformSubscriptionStatistics() {
-    const { data } = await apiClient.get('/subscriptions/platform/statistics');
+    const { data } = await apiClient.get('/subscriptions/statistics');
     return data;
   },
 
   async cancelPlatformSubscription(id: string) {
-    const { data } = await apiClient.post(`/subscriptions/platform/${id}/cancel`);
+    const { data } = await apiClient.post(`/subscriptions/${id}/cancel`);
     return data;
   },
 
@@ -277,9 +277,17 @@ export const adminService = {
   async getPlatformPayments(
     params?: any
   ): Promise<any> {
+    const cleanParams: Record<string, any> = {};
+    if (params) {
+      for (const [k, v] of Object.entries(params)) {
+        if (v !== '' && v !== null && v !== undefined) {
+          cleanParams[k] = v;
+        }
+      }
+    }
     const { data } = await apiClient.get<any>(
       '/payments',
-      { params }
+      { params: cleanParams }
     );
     return data;
   },
@@ -502,7 +510,8 @@ export interface EmailLogItem {
 }
 
 export interface EmailLogsResponse {
-  logs: EmailLogItem[];
+  logs?: EmailLogItem[];
+  data?: EmailLogItem[];
   total: number;
   page: number;
   limit: number;

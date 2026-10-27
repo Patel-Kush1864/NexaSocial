@@ -7,7 +7,12 @@
     "dev": "turbo dev",
     "build": "turbo build",
     "lint": "turbo lint",
-    "test": "turbo test"
+    "test": "turbo test",
+    "db:reset": "pnpm --filter api db:reset",
+    "db:seed": "pnpm --filter api db:seed",
+    "db:seed:random": "pnpm --filter api db:seed:random",
+    "db:seed:dates": "pnpm --filter api db:seed:dates",
+    "db:fresh": "pnpm --filter api db:fresh"
   },
   "keywords": [],
   "author": "",

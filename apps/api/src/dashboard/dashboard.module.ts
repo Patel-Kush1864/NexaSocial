@@ -26,6 +26,8 @@ import { QuickActionsWidget } from './widgets/quick-actions.widget';
 import { User } from '../users/entities/user.entity';
 import { Payment } from '../payments/entities/payment.entity';
 import { UserSubscription } from '../subscriptions/entities/user-subscription.entity';
+import { ActivityLog } from '../activity/entities/activity-log.entity';
+import { SocialAnalyticsSnapshot } from './entities/social-analytics-snapshot.entity';
 
 @Module({
   imports: [
@@ -38,6 +40,8 @@ import { UserSubscription } from '../subscriptions/entities/user-subscription.en
       User,
       Payment,
       UserSubscription,
+      ActivityLog,
+      SocialAnalyticsSnapshot,
     ]),
     SubscriptionsModule,
     NotificationsModule,

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
@@ -26,11 +27,20 @@ import {
 import { SocialAccount } from '../../social/entities/social-account.entity';
 import { OAuthToken } from '../../social/entities/oauth-token.entity';
 import { ActivityLog } from '../../users/entities/activity-log.entity';
-import { CreateStreamDto, UpdateStreamDto } from '../dto/livestream.dto';
+import {
+  CreateStreamDto,
+  UpdateStreamDto,
+  InstagramSourceDto,
+} from '../dto/livestream.dto';
 import { UsageLimitService } from '../../subscriptions/services/usage-limit.service';
 import { LoggerServiceWrapper } from '../../logger/logger.service';
 import { LiveStreamGateway } from '../gateways/livestream.gateway';
-import { encrypt, decrypt } from '../../social/utils/crypto.helper';
+import {
+  encrypt,
+  decrypt,
+  encryptGcm,
+  decryptGcm,
+} from '../../social/utils/crypto.helper';
 import { calculateStreamDuration } from '../helpers/stream-duration.helper';
 
 import { StreamCreatedEvent } from '../events/stream-created.event';
@@ -194,10 +204,10 @@ export class LiveStreamsService {
     dto: CreateStreamDto,
   ): Promise<LiveStream> {
     // 1. Check stream creation limit
-    const allowed = await this.usageLimitService.canCreateStream(userId);
+    const allowed = await this.usageLimitService.canCreateStream(userId, workspaceId);
     if (!allowed) {
       throw new BadRequestException(
-        'Workspace live stream limit reached. Please upgrade your plan.',
+        'Your workspace has reached the limit for this feature. Please contact the workspace owner to manage the plan.',
       );
     }
 
@@ -245,25 +255,6 @@ export class LiveStreamsService {
       );
       streamPlatforms =
         await this.streamPlatformRepository.save(streamPlatforms);
-
-      // Auto-prepare Facebook post details on Graph API if Facebook account is connected
-      for (const p of streamPlatforms) {
-        const acc = accounts.find((a) => a.id === p.connectedAccountId);
-        if (acc?.platformName === 'FACEBOOK') {
-          try {
-            await this.syncFacebookMetadata(stream.id, workspaceId, {
-              platformId: p.id,
-              title: stream.title,
-              description: stream.description,
-            });
-          } catch (fbErr: any) {
-            this.loggerService.warn(
-              `Initial Facebook post metadata auto-sync notice: ${fbErr.message}`,
-              'LiveStreamsService',
-            );
-          }
-        }
-      }
     }
 
     // 5. Log activity & publish domain event
@@ -373,12 +364,20 @@ export class LiveStreamsService {
       const newMappings = accounts.map((acc) => {
         let streamUrl = undefined;
         let streamKey = undefined;
-        if (
-          acc.platformName === 'FACEBOOK' ||
-          acc.platformName === 'INSTAGRAM'
-        ) {
+        if (acc.platformName === 'INSTAGRAM') {
           streamUrl = acc.metadata?.rtmpsUrl;
           streamKey = acc.metadata?.streamKey;
+        } else if (acc.platformName === 'FACEBOOK') {
+          streamUrl =
+            acc.metadata?.rtmpsUrl ||
+            'rtmps://live-api-s.facebook.com:443/rtmp/';
+          // Only reuse streamKey if it's not a single-use broadcast key (starts with FB-)
+          if (
+            acc.metadata?.streamKey &&
+            !acc.metadata.streamKey.startsWith('FB-')
+          ) {
+            streamKey = acc.metadata.streamKey;
+          }
         }
         return this.streamPlatformRepository.create({
           streamId: id,
@@ -441,14 +440,28 @@ export class LiveStreamsService {
         didChange = true;
       } else {
         for (const p of existingPlatforms) {
-          if (cleanedKey !== undefined && p.streamKey !== cleanedKey) {
-            p.streamKey = cleanedKey;
-            const keyMatch = cleanedKey.match(/^FB-(\d+)-/);
-            if (keyMatch && p.connectedAccount?.platformName === 'FACEBOOK') {
-              p.facebookLiveVideoId = keyMatch[1];
-              p.metadataStatus = 'PENDING';
+          const isInstagram = p.connectedAccount?.platformName === 'INSTAGRAM';
+          if (cleanedKey !== undefined) {
+            const encryptedKey = isInstagram
+              ? encryptGcm(cleanedKey)
+              : cleanedKey;
+            if (p.streamKey !== encryptedKey) {
+              p.streamKey = encryptedKey;
+              const keyMatch = cleanedKey.match(/^FB-(\d+)-/);
+              if (keyMatch && p.connectedAccount?.platformName === 'FACEBOOK') {
+                p.facebookLiveVideoId = keyMatch[1];
+                p.metadataStatus = 'PENDING';
+              }
+              if (isInstagram) {
+                p.sourceStatus = 'CONNECTED';
+                p.sourceConnectedAt = new Date();
+                p.metadataStatus = 'COMPLETED';
+                p.metadataCompletedAt = new Date();
+                p.instagramLastError = undefined;
+                p.instagramLastErrorCode = undefined;
+              }
+              didChange = true;
             }
-            didChange = true;
           }
           if (customUrl !== undefined && p.streamUrl !== customUrl) {
             p.streamUrl = customUrl;
@@ -465,8 +478,7 @@ export class LiveStreamsService {
           // Persist Facebook/Instagram RTMPS credentials so user doesn't have to enter them every time
           if (
             didChange &&
-            (p.connectedAccount?.platformName === 'FACEBOOK' ||
-              p.connectedAccount?.platformName === 'INSTAGRAM')
+            (p.connectedAccount?.platformName === 'FACEBOOK' || isInstagram)
           ) {
             const acc = p.connectedAccount;
             acc.metadata = acc.metadata || {};
@@ -501,11 +513,17 @@ export class LiveStreamsService {
         this.ffmpegService.stopForwarding(id);
         for (const p of existingPlatforms) {
           if (p.streamUrl) {
+            const isInstagram =
+              p.connectedAccount?.platformName === 'INSTAGRAM';
+            const decryptedKey = isInstagram
+              ? cleanedKey || (p.streamKey ? decryptGcm(p.streamKey) : '')
+              : cleanedKey || p.streamKey || '';
+
             this.ffmpegService.startForwarding({
               streamId: id,
               sourceUrl: mediaSession.rtmpSourceUrl,
               destinationUrl: p.streamUrl,
-              streamKey: cleanedKey || p.streamKey || '',
+              streamKey: decryptedKey,
               platform: p.connectedAccount?.platformName,
             });
           }
@@ -766,6 +784,107 @@ export class LiveStreamsService {
               'LiveStreamsService',
             );
             throw fbErr;
+          }
+        }
+
+        if (platformName === 'INSTAGRAM') {
+          try {
+            const rawKey =
+              mapping.streamKey ||
+              mapping.connectedAccount?.metadata?.streamKey;
+            let decryptedKey = '';
+            try {
+              decryptedKey = rawKey ? decryptGcm(rawKey) : '';
+            } catch {
+              decryptedKey = rawKey?.startsWith('gcm:') ? '' : rawKey || '';
+            }
+            const streamUrl =
+              mapping.streamUrl?.trim() ||
+              'rtmps://live-upload.instagram.com:443/rtmp/';
+
+            if (
+              !decryptedKey ||
+              !this.instagramAdapter.validateStreamKey(decryptedKey)
+            ) {
+              const errDesc =
+                'Instagram Stream Key is missing or invalid. Please configure your Stream Key from Instagram Live Producer.';
+              mapping.status = StreamPlatformStatus.FAILED;
+              mapping.instagramLastError = errDesc;
+              mapping.instagramLastErrorCode = 'MISSING_STREAM_KEY';
+              await this.streamPlatformRepository.save(mapping);
+              this.loggerService.warn(
+                `[LIVE] Instagram platform ${mapping.id} start notice: ${errDesc}`,
+                'LiveStreamsService',
+              );
+              continue;
+            }
+
+            if (!this.instagramAdapter.validateIngestUrl(streamUrl)) {
+              const errDesc = `Invalid or disallowed Instagram RTMPS endpoint: ${streamUrl}`;
+              mapping.status = StreamPlatformStatus.FAILED;
+              mapping.instagramLastError = errDesc;
+              mapping.instagramLastErrorCode = 'INVALID_INGEST_URL';
+              await this.streamPlatformRepository.save(mapping);
+              this.loggerService.warn(
+                `[LIVE] Instagram platform ${mapping.id} start notice: ${errDesc}`,
+                'LiveStreamsService',
+              );
+              continue;
+            }
+
+            // Start FFmpeg forwarding for Instagram with 9:16 portrait transcoding filter
+            const relayStarted = this.ffmpegService.startForwarding({
+              streamId: id,
+              sourceUrl: 'pipe:0',
+              destinationUrl: streamUrl,
+              streamKey: decryptedKey,
+              platform: 'INSTAGRAM',
+            });
+
+            if (relayStarted) {
+              mapping.status =
+                StreamPlatformStatus.WAITING_FOR_INSTAGRAM_CONFIRMATION;
+              mapping.sourceStatus = 'TRANSMITTING';
+              mapping.sourceConnectedAt = new Date();
+              mapping.instagramLastError = undefined;
+              mapping.instagramLastErrorCode = undefined;
+              await this.streamPlatformRepository.save(mapping);
+              successCount++;
+
+              if (userId) {
+                await this.activityLogRepository.save(
+                  this.activityLogRepository.create({
+                    userId,
+                    action: 'INSTAGRAM_OUTPUT_STARTED',
+                    metadata: {
+                      workspaceId: stream.workspaceId,
+                      streamId: id,
+                      platformId: mapping.id,
+                      destinationUrl: streamUrl,
+                    },
+                  }),
+                );
+              }
+            } else {
+              mapping.status = StreamPlatformStatus.FAILED;
+              mapping.instagramLastError =
+                'Failed to start FFmpeg media relay worker.';
+              mapping.instagramLastErrorCode = 'WORKER_SPAWN_FAILED';
+              await this.streamPlatformRepository.save(mapping);
+            }
+            continue;
+          } catch (igErr) {
+            const igErrMsg =
+              igErr instanceof Error ? igErr.message : String(igErr);
+            this.loggerService.warn(
+              `[LIVE] Instagram start error: ${igErrMsg}`,
+              'LiveStreamsService',
+            );
+            mapping.status = StreamPlatformStatus.FAILED;
+            mapping.instagramLastError = igErrMsg;
+            mapping.instagramLastErrorCode = 'START_FAILED';
+            await this.streamPlatformRepository.save(mapping);
+            continue;
           }
         }
 
@@ -1074,12 +1193,12 @@ export class LiveStreamsService {
       throw new NotFoundException('Live stream not found');
     }
 
-    if (stream.status !== StreamStatus.LIVE) {
+    if (stream.status !== StreamStatus.LIVE && !this.ffmpegService.isForwarding(id)) {
       throw new BadRequestException('Live stream is not active.');
     }
 
     // Stop FFmpeg relay processes and close Media Server stream session
-    this.ffmpegService.stopForwarding(id);
+    this.ffmpegService.stopForwarding(id, undefined, 'user_stopped_stream', 'stopStream');
     this.mediaServerService.closeSession(id);
 
     const endedAt = new Date();
@@ -1096,6 +1215,23 @@ export class LiveStreamsService {
 
     // End remote streams via adapters
     for (const mapping of platforms) {
+      const platformName = mapping.connectedAccount?.platformName || '';
+      if (platformName === 'INSTAGRAM') {
+        if (
+          mapping.status === StreamPlatformStatus.LIVE ||
+          mapping.status === StreamPlatformStatus.WAITING_FOR_PLATFORM_PREVIEW ||
+          mapping.status === StreamPlatformStatus.WAITING_FOR_INSTAGRAM_CONFIRMATION ||
+          mapping.status === StreamPlatformStatus.STATUS_UNVERIFIED ||
+          mapping.status === StreamPlatformStatus.TRANSMITTING ||
+          mapping.status === StreamPlatformStatus.STARTING
+        ) {
+          mapping.status = StreamPlatformStatus.ENDED;
+          mapping.sourceStatus = 'DISCONNECTED';
+          await this.streamPlatformRepository.save(mapping);
+        }
+        continue;
+      }
+
       if (
         mapping.status === StreamPlatformStatus.LIVE &&
         mapping.platformStreamId
@@ -1157,14 +1293,18 @@ export class LiveStreamsService {
     return this.getStreamDetails(id, stream.workspaceId);
   }
 
-  async getHistory(workspaceId: string): Promise<LiveStream[]> {
+  async getHistory(
+    workspaceId: string,
+    status?: StreamStatus,
+  ): Promise<LiveStream[]> {
+    const whereCondition: any = { workspaceId };
+    if (status) {
+      whereCondition.status = status;
+    }
     const streams = await this.streamRepository.find({
-      where: {
-        workspaceId,
-        status: In([StreamStatus.ENDED, StreamStatus.CANCELLED]),
-      },
+      where: whereCondition,
       relations: { platforms: { connectedAccount: true } },
-      order: { endedAt: 'DESC' },
+      order: { created_at: 'DESC' },
     });
     return streams.map((stream) => {
       if (stream.platforms) {
@@ -1198,9 +1338,16 @@ export class LiveStreamsService {
       },
     });
 
+    const totalStreams = await this.streamRepository.count({
+      where: { workspaceId },
+    });
+
     return {
+      totalStreams,
       scheduled,
       live,
+      liveNow: live,
+      scheduledToday: scheduled,
       completed,
       failed: failedCount,
     };
@@ -1310,8 +1457,8 @@ export class LiveStreamsService {
           `    • Direct Producer Link:   \x1b[4;34mhttps://www.facebook.com/live/producer/${broadcast.platformStreamId}\x1b[0m\n`,
         );
 
-        // Stop any old forwarding and immediately start FFmpeg forwarding to this specific live video's stream key
-        if (fbPlatform.streamUrl && fbPlatform.streamKey) {
+        // Stop any old forwarding and start FFmpeg forwarding only if the stream is currently actively LIVE
+        if (stream.status === StreamStatus.LIVE && fbPlatform.streamUrl && fbPlatform.streamKey) {
           console.log(
             `  [Relay] Restarting FFmpeg forwarder to new Facebook Live Video key (${fbPlatform.streamKey.slice(0, 6)}••••••••)...`,
           );
@@ -1325,41 +1472,64 @@ export class LiveStreamsService {
           });
         }
 
-        // Persist new stream credentials on connected account
+        // Persist server URL on connected account, but NOT single-use stream key
         if (fbPlatform.connectedAccount) {
           const acc = fbPlatform.connectedAccount;
           acc.metadata = acc.metadata || {};
           if (fbPlatform.streamUrl)
             acc.metadata.rtmpsUrl = fbPlatform.streamUrl;
-          if (fbPlatform.streamKey)
+          if (fbPlatform.streamKey && !fbPlatform.streamKey.startsWith('FB-')) {
             acc.metadata.streamKey = fbPlatform.streamKey;
+          } else if (acc.metadata.streamKey && acc.metadata.streamKey.startsWith('FB-')) {
+            delete acc.metadata.streamKey;
+          }
           await this.accountRepository.save(acc);
         }
       } else {
         console.log(
-          `  [Graph API] Updating existing Facebook Live Video ${fbPlatform.facebookLiveVideoId}...`,
+          `  [Graph API] Verifying & updating Facebook Live Video ${fbPlatform.facebookLiveVideoId}...`,
         );
         this.loggerService.log(
-          `[Facebook Live Step 2] Updating Facebook live video ${fbPlatform.facebookLiveVideoId} metadata on Graph API`,
+          `[Facebook Live Step 2] Checking status and updating Facebook live video ${fbPlatform.facebookLiveVideoId}`,
           'LiveStreamsService',
         );
 
         let needsFreshBroadcast = false;
         try {
-          await this.facebookAdapter.updateMetadata(
+          // Check if existing broadcast is still valid and pre-live
+          const liveCheck = await this.facebookAdapter.verifyStreamIngest(
             accessToken,
             fbPlatform.facebookLiveVideoId,
-            title,
-            description,
           );
+          if (
+            liveCheck.status &&
+            liveCheck.status !== 'UNPUBLISHED' &&
+            liveCheck.status !== 'PRE_LIVE'
+          ) {
+            console.warn(
+              `  \x1b[33m⚠ Video ID ${fbPlatform.facebookLiveVideoId} is in non-prelive status '${liveCheck.status}'. Creating fresh Page broadcast...\x1b[0m`,
+            );
+            needsFreshBroadcast = true;
+          } else {
+            await this.facebookAdapter.updateMetadata(
+              accessToken,
+              fbPlatform.facebookLiveVideoId,
+              title,
+              description,
+            );
+          }
         } catch (updateErr: any) {
+          const uMsg = String(updateErr.message || '');
           if (
             updateErr.code === 100 ||
             updateErr.errorSubcode === 33 ||
-            String(updateErr.message || '').includes('Object with ID')
+            uMsg.includes('Object with ID') ||
+            uMsg.includes('Status transition') ||
+            uMsg.includes('does not exist') ||
+            uMsg.includes('Unsupported')
           ) {
             console.warn(
-              `  \x1b[33m⚠ Video ID ${fbPlatform.facebookLiveVideoId} is inaccessible (personal profile draft or expired). Creating fresh Page broadcast...\x1b[0m`,
+              `  \x1b[33m⚠ Video ID ${fbPlatform.facebookLiveVideoId} is inaccessible or in invalid state (${uMsg}). Creating fresh Page broadcast...\x1b[0m`,
             );
             needsFreshBroadcast = true;
           } else {
@@ -1381,6 +1551,17 @@ export class LiveStreamsService {
             fbPlatform.streamUrl = freshBroadcast.streamUrl;
           if (freshBroadcast.streamKey)
             fbPlatform.streamKey = freshBroadcast.streamKey;
+
+          if (stream.status === StreamStatus.LIVE && fbPlatform.streamUrl && fbPlatform.streamKey) {
+            this.ffmpegService.stopForwarding(streamId);
+            this.ffmpegService.startForwarding({
+              streamId,
+              sourceUrl: 'pipe:0',
+              destinationUrl: fbPlatform.streamUrl,
+              streamKey: fbPlatform.streamKey,
+              platform: 'FACEBOOK',
+            });
+          }
         } else {
           // Fetch authoritative live video credentials from Graph API to guarantee streamKey matches fbPlatform.facebookLiveVideoId
           try {
@@ -1404,26 +1585,29 @@ export class LiveStreamsService {
         fbPlatform.facebookLastErrorCode = undefined;
 
         console.log(
-          `  \x1b[1;32m✔ Updated metadata on Facebook Graph API successfully!\x1b[0m\n` +
+          `  \x1b[1;32m✔ Synchronized Facebook metadata successfully!\x1b[0m\n` +
           `    • Live Video ID: \x1b[1;32m${fbPlatform.facebookLiveVideoId}\x1b[0m\n` +
           `    • RTMPS Server:  ${fbPlatform.streamUrl}\n` +
           `    • Stream Key:    ${fbPlatform.streamKey ? fbPlatform.streamKey.slice(0, 6) + '••••••••' : '(none)'}\n`,
         );
 
-        // Keep connected account metadata in sync
+        // Keep connected account metadata in sync without polluting with ephemeral FB- keys
         if (fbPlatform.connectedAccount) {
           const acc = fbPlatform.connectedAccount;
           acc.metadata = acc.metadata || {};
           if (fbPlatform.streamUrl)
             acc.metadata.rtmpsUrl = fbPlatform.streamUrl;
-          if (fbPlatform.streamKey)
+          if (fbPlatform.streamKey && !fbPlatform.streamKey.startsWith('FB-')) {
             acc.metadata.streamKey = fbPlatform.streamKey;
+          } else if (acc.metadata.streamKey && acc.metadata.streamKey.startsWith('FB-')) {
+            delete acc.metadata.streamKey;
+          }
           await this.accountRepository.save(acc);
         }
       }
 
-      // Sync active FFmpeg forwarder to ensure incoming camera packets reach this matching stream key
-      if (fbPlatform.streamUrl && fbPlatform.streamKey) {
+      // Sync active FFmpeg forwarder only if stream is actively LIVE
+      if (stream.status === StreamStatus.LIVE && fbPlatform.streamUrl && fbPlatform.streamKey) {
         if (!this.ffmpegService.isForwarding(streamId, fbPlatform.streamKey)) {
           console.log(
             `  [Relay] Syncing FFmpeg forwarder to live video key (${fbPlatform.streamKey.slice(0, 6)}••••••••)...`,
@@ -1533,21 +1717,30 @@ export class LiveStreamsService {
       );
     }
 
-    const customUrl = options?.customStreamUrl || options?.streamUrl;
-    const customKey = options?.customStreamKey || options?.streamKey;
+    const rawUrl = options?.customStreamUrl ?? options?.streamUrl;
+    const rawKey = options?.customStreamKey ?? options?.streamKey;
 
-    if (customUrl !== undefined) {
-      const trimmedUrl = customUrl.trim();
-      if (trimmedUrl && !/^rtmps?:\/\//i.test(trimmedUrl)) {
-        throw new BadRequestException(
-          'Invalid RTMPS endpoint: URL must begin with rtmp:// or rtmps://',
-        );
+    if (typeof rawUrl === 'string') {
+      const trimmedUrl = rawUrl.trim();
+      if (trimmedUrl) {
+        if (!/^rtmps?:\/\//i.test(trimmedUrl)) {
+          throw new BadRequestException(
+            'Invalid RTMPS endpoint: URL must begin with rtmp:// or rtmps://',
+          );
+        }
+        fbPlatform.streamUrl = trimmedUrl;
       }
-      fbPlatform.streamUrl = trimmedUrl;
     }
 
-    if (customKey !== undefined) {
-      const trimmedKey = customKey.trim();
+    // Default Facebook RTMPS endpoint if missing or null
+    if (!fbPlatform.streamUrl) {
+      fbPlatform.streamUrl =
+        fbPlatform.connectedAccount?.metadata?.rtmpsUrl ||
+        'rtmps://live-api-s.facebook.com:443/rtmp/';
+    }
+
+    if (typeof rawKey === 'string') {
+      const trimmedKey = rawKey.trim();
       if (trimmedKey && trimmedKey !== '••••••••••••••••') {
         fbPlatform.streamKey = trimmedKey;
         const keyMatch = trimmedKey.match(/^FB-(\d+)-/);
@@ -1562,6 +1755,11 @@ export class LiveStreamsService {
           }
         }
       }
+    }
+
+    // If streamKey is missing on the platform, check connected account metadata
+    if (!fbPlatform.streamKey && fbPlatform.connectedAccount?.metadata?.streamKey) {
+      fbPlatform.streamKey = fbPlatform.connectedAccount.metadata.streamKey;
     }
 
     const maskedKey = fbPlatform.streamKey
@@ -1594,22 +1792,26 @@ export class LiveStreamsService {
         publishRequested: fbPlatform.publishStatus === 'PUBLISHED',
         facebookStatus: fbPlatform.status,
         facebookLiveVideoId: fbPlatform.facebookLiveVideoId,
-        message: 'Facebook RTMPS endpoint and Stream Key are required.',
+        message: 'Facebook RTMPS endpoint and Stream Key are required. Please configure Stream Key or complete Step 2.',
       };
     }
 
     // Start or maintain FFmpeg relay so video packets reach Facebook
-    if (!this.ffmpegService.isForwarding(streamId, fbPlatform.streamKey)) {
-      console.log(
-        `  [Relay] Starting FFmpeg relay to ${fbPlatform.streamUrl}...`,
-      );
-      this.ffmpegService.startForwarding({
-        streamId,
-        sourceUrl: 'pipe:0',
-        destinationUrl: fbPlatform.streamUrl,
-        streamKey: fbPlatform.streamKey,
-        platform: 'FACEBOOK',
-      });
+    try {
+      if (!this.ffmpegService.isForwarding(streamId, fbPlatform.streamKey)) {
+        console.log(
+          `  [Relay] Starting FFmpeg relay to ${fbPlatform.streamUrl}...`,
+        );
+        this.ffmpegService.startForwarding({
+          streamId,
+          sourceUrl: 'pipe:0',
+          destinationUrl: fbPlatform.streamUrl,
+          streamKey: fbPlatform.streamKey,
+          platform: 'FACEBOOK',
+        });
+      }
+    } catch (relayErr: any) {
+      console.warn(`  • FFmpeg relay start notice: ${relayErr.message}`);
     }
 
     const isRelayActive = this.ffmpegService.isForwarding(
@@ -1621,9 +1823,15 @@ export class LiveStreamsService {
     );
 
     // If access token and live video id are available, verify Facebook ingest status
-    const { accessToken } = await this.getDecryptedTokenForAccount(
-      fbPlatform.connectedAccountId,
-    );
+    let accessToken = '';
+    try {
+      const tokenResult = await this.getDecryptedTokenForAccount(
+        fbPlatform.connectedAccountId,
+      );
+      accessToken = tokenResult.accessToken;
+    } catch (tokErr: any) {
+      console.warn(`  • Token retrieval notice: ${tokErr.message}`);
+    }
 
     let facebookIngesting = false;
     if (
@@ -1842,6 +2050,106 @@ export class LiveStreamsService {
         };
       } catch (err: any) {
         const errMsg = err instanceof Error ? err.message : String(err);
+        const errCode = err.code || err.errorSubcode;
+        const isStaleVideoError =
+          errCode === 100 ||
+          errCode === 33 ||
+          errMsg.includes('Object with ID') ||
+          errMsg.includes('Status transition') ||
+          errMsg.includes('does not exist') ||
+          errMsg.includes('Unsupported');
+
+        if (isStaleVideoError) {
+          console.warn(
+            `\x1b[33m⚠ Video ${fbPlatform.facebookLiveVideoId} is stale or invalid (${errMsg}). Auto-recovering by creating fresh broadcast...\x1b[0m`,
+          );
+          try {
+            const targetPageId =
+              fbPlatform.facebookPageId ||
+              fbPlatform.connectedAccount?.platformUserId;
+            const freshBroadcast = await this.facebookAdapter.createBroadcast(
+              accessToken,
+              stream.title,
+              stream.description,
+              targetPageId,
+            );
+            fbPlatform.facebookLiveVideoId = freshBroadcast.platformStreamId;
+            fbPlatform.platformStreamId = freshBroadcast.platformStreamId;
+            fbPlatform.facebookPageId = targetPageId;
+            if (freshBroadcast.streamUrl)
+              fbPlatform.streamUrl = freshBroadcast.streamUrl;
+            if (freshBroadcast.streamKey)
+              fbPlatform.streamKey = freshBroadcast.streamKey;
+
+            // Restart FFmpeg relay forwarder with new stream credentials
+            if (fbPlatform.streamUrl && fbPlatform.streamKey) {
+              this.ffmpegService.stopForwarding(streamId);
+              this.ffmpegService.startForwarding({
+                streamId,
+                sourceUrl: 'pipe:0',
+                destinationUrl: fbPlatform.streamUrl,
+                streamKey: fbPlatform.streamKey,
+                platform: 'FACEBOOK',
+              });
+            }
+
+            // Publish fresh broadcast
+            await this.facebookAdapter.startBroadcast(
+              accessToken,
+              freshBroadcast.platformStreamId,
+            );
+
+            const viewerUrl = await this.facebookAdapter.getViewerUrl(
+              accessToken,
+              fbPlatform.facebookLiveVideoId,
+            );
+
+            fbPlatform.status = StreamPlatformStatus.LIVE;
+            fbPlatform.publishStatus = 'PUBLISHED';
+            fbPlatform.publishedAt = new Date();
+            fbPlatform.sourceStatus = 'CONNECTED';
+            fbPlatform.sourceConnectedAt =
+              fbPlatform.sourceConnectedAt || new Date();
+            fbPlatform.metadataStatus = 'COMPLETED';
+            fbPlatform.metadataCompletedAt =
+              fbPlatform.metadataCompletedAt || new Date();
+            if (viewerUrl) fbPlatform.viewerUrl = viewerUrl;
+            fbPlatform.facebookLastError = undefined;
+            fbPlatform.facebookLastErrorCode = undefined;
+
+            stream.status = StreamStatus.LIVE;
+            stream.startedAt = stream.startedAt || new Date();
+
+            await this.streamPlatformRepository.save(fbPlatform);
+            await this.streamRepository.save(stream);
+
+            this.streamGateway.emitStreamStarted(workspaceId, streamId, [
+              {
+                platform: 'FACEBOOK',
+                url: fbPlatform.streamUrl,
+                key: '••••••••••••••••',
+                status: StreamPlatformStatus.LIVE,
+              },
+            ]);
+
+            return {
+              success: true,
+              sourceConnected: true,
+              metadataCompleted: true,
+              publishRequested: true,
+              facebookStatus: 'LIVE',
+              facebookLiveVideoId: fbPlatform.facebookLiveVideoId,
+              viewerUrl: fbPlatform.viewerUrl,
+              message:
+                'Step 3 Complete: Broadcast refreshed and is now LIVE on Facebook!',
+            };
+          } catch (recoveryErr: any) {
+            console.error(
+              `\x1b[1;31m✖ [STEP 3 RECOVERY FAILED]\x1b[0m ${recoveryErr.message}`,
+            );
+          }
+        }
+
         console.error(
           `\x1b[1;31m✖ [STEP 3 FAILED] Facebook publishing error:\x1b[0m\n` +
           `  • Message: ${errMsg}\n` +
@@ -1933,7 +2241,138 @@ export class LiveStreamsService {
     };
   }
 
-  async confirmInstagramLive(
+  async configureInstagramSource(
+    streamId: string,
+    workspaceId: string,
+    userId: string,
+    dto: InstagramSourceDto,
+  ): Promise<any> {
+    const stream = await this.streamRepository.findOne({
+      where: { id: streamId, workspaceId },
+      relations: { platforms: { connectedAccount: true } },
+    });
+    if (!stream) {
+      throw new NotFoundException('Live stream not found in this workspace');
+    }
+
+    let igPlatform = stream.platforms?.find(
+      (p) =>
+        (p.connectedAccount?.platformName === 'INSTAGRAM' ||
+          (p as any).platform === 'INSTAGRAM') &&
+        (!dto.platformId || p.id === dto.platformId),
+    );
+
+    // Auto-bind or create Instagram platform mapping if not already attached
+    if (!igPlatform) {
+      let igAccount = await this.accountRepository.findOne({
+        where: { workspaceId, platformName: 'INSTAGRAM' },
+      });
+      if (!igAccount) {
+        igAccount = await this.accountRepository.save(
+          this.accountRepository.create({
+            workspaceId,
+            platformName: 'INSTAGRAM',
+            platformUserId: `ig_${streamId}`,
+            name: 'Instagram Account',
+          }),
+        );
+      }
+      igPlatform = await this.streamPlatformRepository.save(
+        this.streamPlatformRepository.create({
+          streamId,
+          connectedAccountId: igAccount.id,
+          status: StreamPlatformStatus.PENDING,
+          connectedAccount: igAccount,
+        }),
+      );
+    }
+
+    const streamUrl = (
+      dto.streamUrl ||
+      igPlatform.streamUrl ||
+      'rtmps://live-upload.instagram.com:443/rtmp/'
+    ).trim();
+    const streamKey = (dto.streamKey || '').trim();
+
+    if (!this.instagramAdapter.validateIngestUrl(streamUrl)) {
+      throw new BadRequestException(
+        `Invalid Instagram ingest endpoint: "${streamUrl}". Endpoint must start with rtmp:// or rtmps:// and point to live-upload.instagram.com.`,
+      );
+    }
+
+    if (!streamKey || !this.instagramAdapter.validateStreamKey(streamKey)) {
+      throw new BadRequestException(
+        'Invalid Instagram Stream Key. Keys must be between 4 and 256 characters from Instagram Live Producer.',
+      );
+    }
+
+    // Encrypt stream key using authenticated AES-256-GCM
+    const encryptedKey = encryptGcm(streamKey);
+
+    igPlatform.streamUrl = streamUrl;
+    igPlatform.streamKey = encryptedKey;
+    igPlatform.sourceStatus = 'CONNECTED';
+    igPlatform.sourceConnectedAt = new Date();
+    igPlatform.metadataStatus = 'COMPLETED';
+    igPlatform.metadataCompletedAt = new Date();
+    igPlatform.instagramLastError = undefined;
+    igPlatform.instagramLastErrorCode = undefined;
+    if (
+      igPlatform.status !== StreamPlatformStatus.LIVE &&
+      igPlatform.status !== StreamPlatformStatus.WAITING_FOR_PLATFORM_PREVIEW &&
+      igPlatform.status !== StreamPlatformStatus.TRANSMITTING
+    ) {
+      igPlatform.status = StreamPlatformStatus.CONFIGURED;
+    }
+    await this.streamPlatformRepository.save(igPlatform);
+
+    // Update connected account metadata safely
+    if (igPlatform.connectedAccount) {
+      const acc = igPlatform.connectedAccount;
+      acc.metadata = acc.metadata || {};
+      acc.metadata.rtmpsUrl = streamUrl;
+      acc.metadata.streamKey = encryptedKey;
+      await this.accountRepository.save(acc);
+    }
+
+    // Record activity log (without exposing stream key)
+    await this.activityLogRepository.save(
+      this.activityLogRepository.create({
+        userId,
+        action: 'INSTAGRAM_CONFIGURED',
+        metadata: {
+          workspaceId,
+          streamId,
+          platformId: igPlatform.id,
+          streamUrl,
+        },
+      }),
+    );
+
+    // If stream is currently LIVE, restart FFmpeg forwarding to new key immediately
+    if (stream.status === StreamStatus.LIVE) {
+      this.ffmpegService.stopForwarding(streamId);
+      this.ffmpegService.startForwarding({
+        streamId,
+        sourceUrl: 'pipe:0',
+        destinationUrl: streamUrl,
+        streamKey: streamKey, // Decrypted in memory
+        platform: 'INSTAGRAM',
+      });
+    }
+
+    return {
+      success: true,
+      platformId: igPlatform.id,
+      streamUrl,
+      sourceConnected: true,
+      status: igPlatform.status,
+      producerUrl: this.instagramAdapter.getProducerUrl(),
+      message: 'Instagram Live Producer configuration saved securely.',
+    };
+  }
+
+  async startInstagramOutput(
     streamId: string,
     workspaceId: string,
     userId: string,
@@ -1949,7 +2388,269 @@ export class LiveStreamsService {
 
     const igPlatform = stream.platforms?.find(
       (p) =>
-        p.connectedAccount?.platformName === 'INSTAGRAM' &&
+        (p.connectedAccount?.platformName === 'INSTAGRAM' ||
+          (p as any).platform === 'INSTAGRAM') &&
+        (!platformId || p.id === platformId),
+    );
+    if (!igPlatform) {
+      throw new BadRequestException(
+        'No Instagram destination found for this live stream',
+      );
+    }
+
+    if (!igPlatform.streamKey) {
+      throw new BadRequestException(
+        'Instagram Stream Key is not configured. Please enter your Stream Key from Instagram Live Producer before starting output.',
+      );
+    }
+
+    let decryptedKey = '';
+    try {
+      decryptedKey = decryptGcm(igPlatform.streamKey);
+    } catch {
+      throw new BadRequestException(
+        'Your saved Instagram Stream Key is invalid or was corrupted before the system update. Please paste your Stream Key into Step 1, click Save, and then click Start Video Transmission.',
+      );
+    }
+    if (!decryptedKey || decryptedKey.startsWith('gcm:')) {
+      throw new BadRequestException(
+        'Your saved Instagram Stream Key is invalid or was corrupted before the system update. Please paste your Stream Key into Step 1, click Save, and then click Start Video Transmission.',
+      );
+    }
+
+    const streamUrl =
+      igPlatform.streamUrl || 'rtmps://live-upload.instagram.com:443/rtmp/';
+
+    if (!this.instagramAdapter.validateIngestUrl(streamUrl)) {
+      throw new BadRequestException(
+        `Invalid Instagram ingest endpoint: ${streamUrl}`,
+      );
+    }
+
+    const accountType = (igPlatform.connectedAccount?.metadata?.accountType || '').toUpperCase();
+    const isMockAccount = Boolean(
+      igPlatform.connectedAccount?.platformUserId?.startsWith('mock_') ||
+      igPlatform.connectedAccount?.metadata?.isMock,
+    );
+
+    if (accountType === 'PERSONAL') {
+      igPlatform.status = StreamPlatformStatus.FAILED;
+      igPlatform.instagramLastError =
+        'Personal Instagram accounts do not have access to Instagram Live Producer desktop streaming. Please switch your account to a Professional (Creator or Business) account in the Instagram mobile app under Settings -> Account type and tools.';
+      igPlatform.instagramLastErrorCode = 'ACCOUNT_INELIGIBLE_PERSONAL';
+      await this.streamPlatformRepository.save(igPlatform);
+      throw new BadRequestException(
+        'Personal Instagram accounts do not have access to Instagram Live Producer desktop streaming. Please switch your account to a Professional (Creator or Business) account in the Instagram mobile app under Settings -> Account type and tools.',
+      );
+    }
+
+    // Check if worker already running
+    if (this.ffmpegService.isForwarding(streamId, decryptedKey)) {
+      console.log(
+        `[INSTAGRAM_LIVE][RELAY] worker already running for streamId=${streamId}, preserving relay`,
+      );
+      if (igPlatform.status !== StreamPlatformStatus.LIVE) {
+        igPlatform.status = StreamPlatformStatus.WAITING_FOR_INSTAGRAM_CONFIRMATION;
+      }
+      igPlatform.sourceStatus = 'TRANSMITTING';
+      await this.streamPlatformRepository.save(igPlatform);
+
+      const relayDiag = this.ffmpegService.getRelayDiagnostics(streamId);
+      return {
+        success: true,
+        isRelayActive: true,
+        isMockAccount,
+        eligibilityStatus: isMockAccount
+          ? 'MOCK_ACCOUNT'
+          : accountType === 'BUSINESS' || accountType === 'MEDIA_CREATOR'
+          ? 'ELIGIBLE_PROFESSIONAL'
+          : 'ELIGIBILITY_NOT_VERIFIED',
+        framesTransmitted: relayDiag.framesTransmitted,
+        transmittedChunks: relayDiag.transmittedChunks,
+        lastTransmissionTime: relayDiag.lastTransmissionTime,
+        status: igPlatform.status,
+        relayDiagnostics: relayDiag,
+        producerUrl: this.instagramAdapter.getProducerUrl(),
+        requiresManualConfirmation: true,
+        message:
+          "Your video is reaching Instagram. Complete 'Go Live' in Instagram (instagram.com -> Create -> Live video) to publish your broadcast.",
+      };
+    }
+
+    console.log(
+      `\n\x1b[1;35m╔════════════════════════════════════════════════════════════════════════════════╗\n` +
+      `║ [INSTAGRAM LIVE RELAY START] Starting Output Pipeline                        \n` +
+      `╚════════════════════════════════════════════════════════════════════════════════╝\x1b[0m\n` +
+      `  • Stream ID:            ${streamId}\n` +
+      `  • Platform ID:          ${igPlatform.id}\n` +
+      `  • Destination URL:      ${streamUrl}\n` +
+      `  • Stream Key Masked:    ${decryptedKey.length > 8 ? `${decryptedKey.slice(0, 4)}••••••••` : '••••••••'}\n` +
+      `  • Ingest Mode:          ${igPlatform.ingestMode || 'LIVE_PRODUCER'}\n` +
+      `  • Account Type:         ${accountType || 'UNKNOWN'}\n` +
+      `  • Is Mock Account:      ${isMockAccount ? 'YES (mock_ig_user_101)' : 'NO (real OAuth)'}\n`,
+    );
+
+    let started = false;
+    try {
+      started = this.ffmpegService.startForwarding({
+        streamId,
+        sourceUrl: 'pipe:0',
+        destinationUrl: streamUrl,
+        streamKey: decryptedKey,
+        platform: 'INSTAGRAM',
+      });
+    } catch (relayErr: any) {
+      igPlatform.status = StreamPlatformStatus.FAILED;
+      igPlatform.instagramLastError =
+        relayErr?.message ||
+        'Failed to spawn FFmpeg media relay worker process.';
+      igPlatform.instagramLastErrorCode = 'WORKER_SPAWN_FAILED';
+      await this.streamPlatformRepository.save(igPlatform);
+      throw new BadRequestException(
+        relayErr?.message || 'Failed to start Instagram media relay worker.',
+      );
+    }
+
+    if (!started) {
+      igPlatform.status = StreamPlatformStatus.FAILED;
+      igPlatform.instagramLastError =
+        'Failed to spawn FFmpeg media relay worker process.';
+      igPlatform.instagramLastErrorCode = 'WORKER_SPAWN_FAILED';
+      await this.streamPlatformRepository.save(igPlatform);
+      throw new BadRequestException(
+        'Failed to start Instagram media relay worker.',
+      );
+    }
+
+    igPlatform.status = StreamPlatformStatus.WAITING_FOR_INSTAGRAM_CONFIRMATION;
+    igPlatform.sourceStatus = 'TRANSMITTING';
+    igPlatform.sourceConnectedAt = new Date();
+    igPlatform.instagramLastError = undefined;
+    igPlatform.instagramLastErrorCode = undefined;
+    await this.streamPlatformRepository.save(igPlatform);
+
+    await this.activityLogRepository.save(
+      this.activityLogRepository.create({
+        userId,
+        action: 'INSTAGRAM_OUTPUT_STARTED',
+        metadata: {
+          workspaceId,
+          streamId,
+          platformId: igPlatform.id,
+          streamUrl,
+        },
+      }),
+    );
+
+    const relayDiag = this.ffmpegService.getRelayDiagnostics(streamId);
+    return {
+      success: true,
+      isRelayActive: true,
+      isMockAccount,
+      eligibilityStatus: isMockAccount
+        ? 'MOCK_ACCOUNT'
+        : accountType === 'BUSINESS' || accountType === 'MEDIA_CREATOR'
+        ? 'ELIGIBLE_PROFESSIONAL'
+        : 'ELIGIBILITY_NOT_VERIFIED',
+      framesTransmitted: relayDiag.framesTransmitted,
+      transmittedChunks: relayDiag.transmittedChunks,
+      lastTransmissionTime: relayDiag.lastTransmissionTime,
+      status: igPlatform.status,
+      relayDiagnostics: relayDiag,
+      producerUrl: this.instagramAdapter.getProducerUrl(),
+      requiresManualConfirmation: true,
+      instructions: [
+        'Open Instagram (https://www.instagram.com/) in a new browser tab.',
+        'Click Create (+) in the left sidebar and choose "Live video".',
+        'Enter a title, set audience to Public, and confirm you see the live video preview incoming from NexaSocial.',
+        'Click "Go Live" in Instagram to publish your broadcast to your followers.',
+        'Return to NexaSocial and click "Verify Live Status on Instagram".',
+      ],
+      message: isMockAccount
+        ? 'Relay started. Notice: A simulated development account (mock_ig_user_101) is connected. Video is transmitting to your configured RTMP stream key, but automatic Meta Graph API live verification is unavailable.'
+        : "Your video is reaching Instagram. On Instagram (instagram.com -> Create (+) -> Live video), verify preview and click 'Go Live' to publish.",
+    };
+  }
+
+  async stopInstagramOutput(
+    streamId: string,
+    workspaceId: string,
+    userId: string,
+    platformId?: string,
+  ): Promise<any> {
+    const stream = await this.streamRepository.findOne({
+      where: { id: streamId, workspaceId },
+      relations: { platforms: { connectedAccount: true } },
+    });
+    if (!stream) {
+      throw new NotFoundException('Live stream not found in this workspace');
+    }
+
+    const igPlatform = stream.platforms?.find(
+      (p) =>
+        (p.connectedAccount?.platformName === 'INSTAGRAM' ||
+          (p as any).platform === 'INSTAGRAM') &&
+        (!platformId || p.id === platformId),
+    );
+    if (!igPlatform) {
+      throw new BadRequestException(
+        'No Instagram destination found for this live stream',
+      );
+    }
+
+    const decryptedKey = igPlatform.streamKey
+      ? decryptGcm(igPlatform.streamKey)
+      : undefined;
+    this.ffmpegService.stopForwarding(
+      streamId,
+      decryptedKey,
+      'user_stopped_instagram_output',
+      'stopInstagramOutput',
+    );
+
+    igPlatform.status = StreamPlatformStatus.ENDED;
+    igPlatform.sourceStatus = 'DISCONNECTED';
+    await this.streamPlatformRepository.save(igPlatform);
+
+    await this.activityLogRepository.save(
+      this.activityLogRepository.create({
+        userId,
+        action: 'INSTAGRAM_OUTPUT_STOPPED',
+        metadata: {
+          workspaceId,
+          streamId,
+          platformId: igPlatform.id,
+        },
+      }),
+    );
+
+    return {
+      success: true,
+      isRelayActive: false,
+      status: StreamPlatformStatus.ENDED,
+      message: 'Instagram media output stopped.',
+    };
+  }
+
+  async confirmInstagramLive(
+    streamId: string,
+    workspaceId: string,
+    userId: string,
+    platformId?: string,
+    manualConfirmed?: boolean,
+  ): Promise<any> {
+    const stream = await this.streamRepository.findOne({
+      where: { id: streamId, workspaceId },
+      relations: { platforms: { connectedAccount: true } },
+    });
+    if (!stream) {
+      throw new NotFoundException('Live stream not found in this workspace');
+    }
+
+    const igPlatform = stream.platforms?.find(
+      (p) =>
+        (p.connectedAccount?.platformName === 'INSTAGRAM' ||
+          (p as any).platform === 'INSTAGRAM') &&
         (!platformId || p.id === platformId),
     );
 
@@ -1965,44 +2666,239 @@ export class LiveStreamsService {
       );
     }
 
-    igPlatform.status = StreamPlatformStatus.LIVE;
-    igPlatform.publishStatus = 'PUBLISHED';
-    igPlatform.sourceStatus = 'CONNECTED';
-    igPlatform.publishedAt = new Date();
-    await this.streamPlatformRepository.save(igPlatform);
-
-    if (stream.status !== StreamStatus.LIVE) {
-      stream.status = StreamStatus.LIVE;
-      stream.startedAt = stream.startedAt || new Date();
-      await this.streamRepository.save(stream);
+    let decryptedKey = '';
+    try {
+      decryptedKey = decryptGcm(igPlatform.streamKey);
+    } catch {
+      decryptedKey = '';
     }
 
-    this.streamGateway.emitStreamStarted(stream.workspaceId, streamId, {
-      id: streamId,
-      platformId: igPlatform.id,
-      platformName: 'INSTAGRAM',
-      status: 'LIVE',
-      viewerUrl: this.instagramAdapter.getViewerUrlForUsername(
-        igPlatform.connectedAccount?.metadata?.username,
-      ),
-    });
+    const relayDiag = this.ffmpegService.getRelayDiagnostics(streamId);
+    const isRelayActive = decryptedKey
+      ? this.ffmpegService.isForwarding(streamId, decryptedKey)
+      : relayDiag.isProcessRunning;
+    const framesTransmitted = relayDiag.framesTransmitted;
+    const chunkCount = relayDiag.transmittedChunks;
+    const lastTransmissionTime = relayDiag.lastTransmissionTime;
 
-    this.loggerService.log(
-      `[LIVE] Instagram broadcast confirmed LIVE for stream ${streamId} by user ${userId}`,
-      'LiveStreamsService',
-      'application',
+    console.log(
+      `\n\x1b[1;36m╔════════════════════════════════════════════════════════════════════════════════╗\n` +
+      `║ [INSTAGRAM LIVE CONFIRM ENTRY] POST /livestreams/${streamId}/instagram/confirm-live\n` +
+      `╚════════════════════════════════════════════════════════════════════════════════╝\x1b[0m\n` +
+      `  • Stream ID:            ${streamId}\n` +
+      `  • Current Lifecycle:    ${igPlatform.status}\n` +
+      `  • Relay Process PID:    ${relayDiag.pid ?? '(none)'}\n` +
+      `  • Relay Running:        ${isRelayActive ? 'YES' : 'NO'}\n` +
+      `  • FFmpeg Exit Code:     ${relayDiag.exitCode ?? 'none'}\n` +
+      `  • Video Frames Sent:    ${framesTransmitted ? `YES (${chunkCount} chunks)` : 'NO'}\n` +
+      `  • Last Transmission:    ${lastTransmissionTime ? lastTransmissionTime.toISOString() : 'never'}\n` +
+      `  • Last RTMP Error:      ${relayDiag.lastRtmpError || 'none'}\n` +
+      `  • Manual Clicked:       ${Boolean(manualConfirmed)}\n`,
     );
 
-    return {
-      success: true,
-      status: 'LIVE',
-      platformId: igPlatform.id,
-      viewerUrl: this.instagramAdapter.getViewerUrlForUsername(
-        igPlatform.connectedAccount?.metadata?.username,
-      ),
-      producerUrl: this.instagramAdapter.getProducerUrl(),
-      message: 'Instagram broadcast confirmed as LIVE!',
-    };
+    if (!isRelayActive) {
+      throw new BadRequestException(
+        'Video transmission is not running. Please start video transmission first before confirming the live broadcast.',
+      );
+    }
+
+    // Check official Meta Graph API live_media capability and public broadcast state
+    let isPubliclyLive = false;
+    let liveMediaId: string | undefined;
+    let apiPublishSupported = false;
+    let verificationMethod = 'NONE';
+    let platformStatus = 'AWAITING_PUBLISH';
+    let limitationReason = '';
+
+    let isMockAccount = false;
+    if (igPlatform.connectedAccount) {
+      try {
+        const token = await this.tokenRepository.findOne({
+          where: { connectedAccountId: igPlatform.connectedAccountId },
+        });
+        const platformUserId = igPlatform.connectedAccount.platformUserId;
+        isMockAccount = Boolean(
+          platformUserId?.startsWith('mock_') ||
+          igPlatform.connectedAccount.metadata?.isMock,
+        );
+
+        if (isMockAccount) {
+          limitationReason =
+            'Simulated development account (mock_ig_user_101) detected. Real Meta Graph API live verification is unavailable. Connect a real Instagram Professional account via Meta OAuth to enable automatic broadcast verification.';
+          verificationMethod = 'MOCK_ACCOUNT_DETECTED';
+          platformStatus = 'VERIFICATION_UNAVAILABLE';
+        } else if (token?.accessToken && platformUserId) {
+          let decToken = token.accessToken;
+          if (decToken.includes(':')) {
+            try {
+              decToken = decrypt(decToken);
+            } catch {
+              decToken = token.accessToken;
+            }
+          }
+          const official = await this.instagramAdapter.checkOfficialLiveStatus(
+            decToken,
+            platformUserId,
+          );
+          apiPublishSupported = official.apiPublishSupported;
+          limitationReason = official.limitationReason;
+          if (official.isLive) {
+            isPubliclyLive = true;
+            liveMediaId = official.liveMediaId;
+            verificationMethod = 'META_GRAPH_API';
+            platformStatus = 'LIVE_VERIFIED';
+          } else {
+            platformStatus = official.metaResponseError || 'NO_ACTIVE_BROADCAST';
+            verificationMethod = 'META_GRAPH_API_CHECKED_NO_BROADCAST';
+          }
+        } else {
+          limitationReason =
+            'No Meta OAuth access token associated with this Instagram account.';
+          verificationMethod = 'STANDALONE_RTMP_LIVE_PRODUCER';
+          platformStatus = 'VERIFICATION_UNAVAILABLE';
+        }
+      } catch (err: any) {
+        console.warn(
+          `[INSTAGRAM_LIVE][VERIFY] official API check error: ${err.message}`,
+        );
+        verificationMethod = 'META_GRAPH_API_ERROR';
+        platformStatus = 'API_CHECK_FAILED';
+      }
+    } else {
+      limitationReason =
+        'Standalone RTMP ingest mode. Official Meta programmatic verification requires an Instagram Professional account connected via OAuth.';
+      verificationMethod = 'STANDALONE_RTMP_LIVE_PRODUCER';
+      platformStatus = 'VERIFICATION_UNAVAILABLE';
+    }
+
+    // CRITICAL: DO NOT set isPubliclyLive = true simply because manualConfirmed was clicked!
+    // A button click in NexaSocial does NOT prove public publication on Instagram.
+    // Only genuine Meta platform evidence verifies public LIVE status.
+    console.log(
+      `[INSTAGRAM_LIVE][VERIFY] streamId=${streamId} publicBroadcast=${isPubliclyLive ? 'LIVE' : 'WAITING_CONFIRMATION'} method=${verificationMethod} platformStatus=${platformStatus}`,
+    );
+
+    const oldStatus = igPlatform.status;
+
+    if (isPubliclyLive) {
+      igPlatform.status = StreamPlatformStatus.LIVE;
+      igPlatform.publishStatus = 'PUBLISHED';
+      igPlatform.sourceStatus = 'TRANSMITTING';
+      igPlatform.publishedAt = igPlatform.publishedAt || new Date();
+      igPlatform.instagramLastError = undefined;
+      igPlatform.instagramLastErrorCode = undefined;
+      await this.streamPlatformRepository.save(igPlatform);
+
+      if (stream.status !== StreamStatus.LIVE) {
+        stream.status = StreamStatus.LIVE;
+        stream.startedAt = stream.startedAt || new Date();
+        await this.streamRepository.save(stream);
+      }
+
+      console.log(
+        `[INSTAGRAM_LIVE][CONFIRM] DB updated streamId=${streamId} oldStatus=${oldStatus} newStatus=LIVE (verified via ${verificationMethod})`,
+      );
+
+      const verifiedViewerUrl = igPlatform.viewerUrl || undefined;
+      this.streamGateway.emitStreamStarted(stream.workspaceId, streamId, {
+        id: streamId,
+        platformId: igPlatform.id,
+        platformName: 'INSTAGRAM',
+        status: 'LIVE',
+        viewerUrl: verifiedViewerUrl,
+        producerUrl: this.instagramAdapter.getProducerUrl(),
+        profileUrl: this.instagramAdapter.getProfileUrl(
+          (igPlatform.connectedAccount as any)?.username ||
+            igPlatform.connectedAccount?.metadata?.username,
+        ),
+      });
+
+      if (userId) {
+        await this.activityLogRepository.save(
+          this.activityLogRepository.create({
+            userId,
+            action: 'INSTAGRAM_BROADCAST_CONFIRMED',
+            metadata: {
+              workspaceId,
+              streamId,
+              platformId: igPlatform.id,
+              verificationMethod,
+              liveMediaId,
+            },
+          }),
+        );
+      }
+
+      return {
+        success: true,
+        isLive: true,
+        isMockAccount,
+        status: StreamPlatformStatus.LIVE,
+        verificationStatus: 'LIVE_VERIFIED',
+        isRelayActive: true,
+        framesTransmitted: true,
+        transmittedChunks: chunkCount,
+        lastTransmissionTime,
+        verificationMethod,
+        liveMediaId,
+        relayDiagnostics: relayDiag,
+        producerUrl: this.instagramAdapter.getProducerUrl(),
+        profileUrl: this.instagramAdapter.getProfileUrl(
+          (igPlatform.connectedAccount as any)?.username ||
+            igPlatform.connectedAccount?.metadata?.username,
+        ),
+        message: 'Instagram broadcast confirmed as LIVE! Stream is publicly broadcasting.',
+      };
+    } else {
+      // Broadcast is not verified live yet.
+      // PRESERVE THE RELAY! Keep status as WAITING_FOR_INSTAGRAM_CONFIRMATION, sourceStatus as TRANSMITTING.
+      if (manualConfirmed) {
+        igPlatform.publishStatus = 'MANUALLY_CONFIRMED';
+      }
+      igPlatform.status = StreamPlatformStatus.WAITING_FOR_INSTAGRAM_CONFIRMATION;
+      igPlatform.sourceStatus = 'TRANSMITTING';
+      await this.streamPlatformRepository.save(igPlatform);
+
+      console.log(
+        `[INSTAGRAM_LIVE][CONFIRM] DB updated streamId=${streamId} oldStatus=${oldStatus} newStatus=WAITING_FOR_INSTAGRAM_CONFIRMATION (relay preserved)`,
+      );
+
+      const message = isMockAccount
+        ? 'Notice: Simulated development account (mock_ig_user_101) detected. Real Meta Graph API verification is bypassed. Your video is streaming to Instagram Live Producer, where you can click "Go Live" on instagram.com.'
+        : manualConfirmed
+        ? 'Manual confirmation noted. Video relay is transmitting. Meta Graph API has not verified an active public broadcast for this account yet. Verify from Instagram Live Producer or a separate viewer account.'
+        : "Video relay is actively transmitting to Instagram. Complete 'Go Live' on Instagram (instagram.com -> Create (+) -> Live video) to publish your broadcast to viewers.";
+
+      const effectiveVerificationStatus = isMockAccount
+        ? 'VERIFICATION_UNAVAILABLE'
+        : manualConfirmed
+        ? 'WAITING_FOR_MANUAL_CONFIRMATION'
+        : 'STATUS_UNVERIFIED';
+
+      return {
+        success: true,
+        isLive: false,
+        isMockAccount,
+        status: StreamPlatformStatus.WAITING_FOR_INSTAGRAM_CONFIRMATION,
+        verificationStatus: effectiveVerificationStatus,
+        isRelayActive: true,
+        framesTransmitted,
+        transmittedChunks: chunkCount,
+        lastTransmissionTime,
+        requiresManualConfirmation: true,
+        apiPublishSupported: false,
+        verificationMethod,
+        platformStatus,
+        relayDiagnostics: relayDiag,
+        limitationReason,
+        producerUrl: this.instagramAdapter.getProducerUrl(),
+        profileUrl: this.instagramAdapter.getProfileUrl(
+          (igPlatform.connectedAccount as any)?.username ||
+            igPlatform.connectedAccount?.metadata?.username,
+        ),
+        message,
+      };
+    }
   }
 
   async getInstagramWorkflowStatus(
@@ -2020,7 +2916,8 @@ export class LiveStreamsService {
 
     const igPlatform = stream.platforms?.find(
       (p) =>
-        p.connectedAccount?.platformName === 'INSTAGRAM' &&
+        (p.connectedAccount?.platformName === 'INSTAGRAM' ||
+          (p as any).platform === 'INSTAGRAM') &&
         (!platformId || p.id === platformId),
     );
 
@@ -2031,26 +2928,117 @@ export class LiveStreamsService {
       };
     }
 
-    const isRelayActive = igPlatform.streamKey
-      ? this.ffmpegService.isForwarding(streamId, igPlatform.streamKey)
-      : false;
+    const decryptedKey = igPlatform.streamKey
+      ? decryptGcm(igPlatform.streamKey)
+      : '';
+    const relayDiag = this.ffmpegService.getRelayDiagnostics(streamId);
+    const isRelayActive = decryptedKey
+      ? this.ffmpegService.isForwarding(streamId, decryptedKey)
+      : relayDiag.isProcessRunning;
+
+    const isMockAccount = Boolean(
+      igPlatform.connectedAccount?.platformUserId?.startsWith('mock_') ||
+      igPlatform.connectedAccount?.metadata?.isMock,
+    );
+
+    let isConfirmedLive = igPlatform.status === StreamPlatformStatus.LIVE;
+    let platformStatus = isConfirmedLive ? 'LIVE' : 'AWAITING_PUBLISH';
+    let verificationMethod = isConfirmedLive ? 'PREVIOUSLY_CONFIRMED' : 'NONE';
+
+    if (!isConfirmedLive && isRelayActive && igPlatform.connectedAccount) {
+      if (isMockAccount) {
+        platformStatus = 'VERIFICATION_UNAVAILABLE';
+        verificationMethod = 'MOCK_ACCOUNT_DETECTED';
+      } else {
+        try {
+          const token = await this.tokenRepository.findOne({
+            where: { connectedAccountId: igPlatform.connectedAccountId },
+          });
+          if (token?.accessToken && igPlatform.connectedAccount.platformUserId) {
+            let decToken = token.accessToken;
+            if (decToken.includes(':')) {
+              try {
+                decToken = decrypt(decToken);
+              } catch {
+                decToken = token.accessToken;
+              }
+            }
+            const official = await this.instagramAdapter.checkOfficialLiveStatus(
+              decToken,
+              igPlatform.connectedAccount.platformUserId,
+            );
+            if (official.isLive) {
+              igPlatform.status = StreamPlatformStatus.LIVE;
+              igPlatform.sourceStatus = 'TRANSMITTING';
+              igPlatform.publishedAt = igPlatform.publishedAt || new Date();
+              await this.streamPlatformRepository.save(igPlatform);
+              isConfirmedLive = true;
+              platformStatus = 'LIVE_VERIFIED';
+              verificationMethod = 'META_GRAPH_API';
+            } else {
+              platformStatus = official.metaResponseError || 'NO_ACTIVE_BROADCAST';
+            }
+          }
+        } catch {
+          // Safe fallback - keep existing status
+        }
+      }
+    }
+
+    let effectiveStatus = igPlatform.status;
+    if (isConfirmedLive) {
+      effectiveStatus = StreamPlatformStatus.LIVE;
+    } else if (isRelayActive) {
+      effectiveStatus = StreamPlatformStatus.WAITING_FOR_INSTAGRAM_CONFIRMATION;
+    } else if (
+      igPlatform.streamKey &&
+      (igPlatform.status === StreamPlatformStatus.PENDING || !igPlatform.status)
+    ) {
+      effectiveStatus = StreamPlatformStatus.CONFIGURED;
+    }
+
+    const framesTransmitted = relayDiag.framesTransmitted;
+    const transmittedChunks = relayDiag.transmittedChunks;
+    const lastTransmissionTime = relayDiag.lastTransmissionTime;
 
     return {
-      configured: true,
+      configured: Boolean(igPlatform.streamKey),
       platformId: igPlatform.id,
-      status: igPlatform.status,
+      status: effectiveStatus,
+      effectiveStatus,
+      isMockAccount,
+      verificationStatus: isConfirmedLive
+        ? 'LIVE_VERIFIED'
+        : isMockAccount
+        ? 'VERIFICATION_UNAVAILABLE'
+        : isRelayActive
+        ? 'STATUS_UNVERIFIED'
+        : 'PENDING_TRANSMISSION',
       streamUrl:
         igPlatform.streamUrl || 'rtmps://live-upload.instagram.com:443/rtmp/',
       isRelayActive,
-      sourceConnected: Boolean(
-        igPlatform.streamKey && igPlatform.streamKey.length > 5,
-      ),
-      isConfirmedLive: igPlatform.status === StreamPlatformStatus.LIVE,
+      framesTransmitted,
+      transmittedChunks,
+      lastTransmissionTime,
+      sourceConnected: Boolean(decryptedKey && decryptedKey.length > 3),
+      isConfirmedLive,
+      requiresManualConfirmation: !isConfirmedLive,
+      verificationMethod,
+      platformStatus,
+      relayDiagnostics: relayDiag,
       producerUrl: this.instagramAdapter.getProducerUrl(),
-      viewerUrl: this.instagramAdapter.getViewerUrlForUsername(
-        igPlatform.connectedAccount?.metadata?.username,
+      viewerUrl: igPlatform.viewerUrl || null,
+      profileUrl: this.instagramAdapter.getProfileUrl(
+        (igPlatform.connectedAccount as any)?.username ||
+          igPlatform.connectedAccount?.metadata?.username,
       ),
+      hasVerifiedViewerUrl: Boolean(igPlatform.viewerUrl),
+      limitationNotice:
+        "Meta's official Instagram Graph API does not provide a programmatic endpoint to initiate or publish live streams. Desktop broadcasts must be started on Instagram (instagram.com -> Create (+) -> Live video).",
       publishedAt: igPlatform.publishedAt,
+      lastError: igPlatform.instagramLastError || relayDiag.lastRtmpError,
+      lastErrorCode: igPlatform.instagramLastErrorCode,
+      ingestMode: igPlatform.ingestMode || 'LIVE_PRODUCER',
     };
   }
 
@@ -2079,17 +3067,38 @@ export class LiveStreamsService {
             ? '••••••••••••••••'
             : p.streamKey;
 
+        const isPlatformInstagram =
+          p.connectedAccount?.platformName === 'INSTAGRAM' ||
+          (p as any).platform === 'INSTAGRAM';
+
+        let isRelayActive = false;
+        if (p.streamKey) {
+          try {
+            const decKey = decryptGcm(p.streamKey);
+            isRelayActive = this.ffmpegService.isForwarding(id, decKey);
+          } catch {
+            isRelayActive = this.ffmpegService.isForwarding(id);
+          }
+        } else {
+          isRelayActive = this.ffmpegService.isForwarding(id);
+        }
+
+        const sourceStatus =
+          isRelayActive && isPlatformInstagram
+            ? 'TRANSMITTING'
+            : p.sourceStatus;
+
         return {
           ...p,
           streamKey: maskedKey,
-          sourceConnected: p.sourceStatus === 'CONNECTED',
+          sourceConnected: p.sourceStatus === 'CONNECTED' || isRelayActive,
           metadataCompleted: p.metadataStatus === 'COMPLETED',
           publishRequested:
             p.publishStatus === 'REQUESTED' || p.publishStatus === 'PUBLISHED',
           facebookStatus: p.status,
           facebookLiveVideoId: p.facebookLiveVideoId,
           facebookPageId: p.facebookPageId,
-          sourceStatus: p.sourceStatus,
+          sourceStatus,
           metadataStatus: p.metadataStatus,
           publishStatus: p.publishStatus,
           sourceConnectedAt: p.sourceConnectedAt,
@@ -2097,6 +3106,23 @@ export class LiveStreamsService {
           publishedAt: p.publishedAt,
           facebookLastError: p.facebookLastError,
           facebookLastErrorCode: p.facebookLastErrorCode,
+          instagramLastError: p.instagramLastError,
+          instagramLastErrorCode: p.instagramLastErrorCode,
+          ingestMode: p.ingestMode || 'LIVE_PRODUCER',
+          isRelayActive,
+          framesTransmitted: this.ffmpegService.isTransmittingFrames(id),
+          transmittedChunks: this.ffmpegService.getTransmittedChunkCount(id),
+          lastTransmissionTime: this.ffmpegService.getLastTransmissionTime(id),
+          verificationStatus:
+            p.status === StreamPlatformStatus.LIVE
+              ? 'LIVE_VERIFIED'
+              : isRelayActive
+              ? 'STATUS_UNVERIFIED'
+              : 'NONE',
+          relayDiagnostics: this.ffmpegService.getRelayDiagnostics(id),
+          viewerAppNotice: isPlatformInstagram
+            ? this.instagramAdapter?.getViewerAppNotice?.()
+            : undefined,
         } as any;
       });
     }

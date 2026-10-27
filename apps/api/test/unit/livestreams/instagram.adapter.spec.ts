@@ -51,9 +51,45 @@ describe('InstagramAdapter (Unit)', () => {
     it('should reject loopback, internal, and SSRF private IP addresses', () => {
       expect(adapter.validateIngestUrl('rtmp://localhost:1935/live')).toBe(false);
       expect(adapter.validateIngestUrl('rtmp://127.0.0.1:1935/live')).toBe(false);
+      expect(adapter.validateIngestUrl('rtmp://[::1]:1935/live')).toBe(false);
       expect(adapter.validateIngestUrl('rtmp://10.0.0.1:1935/live')).toBe(false);
       expect(adapter.validateIngestUrl('rtmp://192.168.1.1:1935/live')).toBe(false);
+      expect(adapter.validateIngestUrl('rtmp://172.16.0.1:1935/live')).toBe(false);
+      expect(adapter.validateIngestUrl('rtmp://172.24.1.100:1935/live')).toBe(false);
+      expect(adapter.validateIngestUrl('rtmp://172.31.255.255:1935/live')).toBe(false);
       expect(adapter.validateIngestUrl('rtmp://169.254.169.254/latest/meta-data/')).toBe(false);
+    });
+  });
+
+  describe('buildRtmpDestination', () => {
+    it('should safely concatenate baseUrl with streamKey when trailing slash is present', () => {
+      const dest = adapter.buildRtmpDestination(
+        'rtmps://live-upload.instagram.com:443/rtmp/',
+        'AQB3x9Y_valid_key',
+      );
+      expect(dest).toBe(
+        'rtmps://live-upload.instagram.com:443/rtmp/AQB3x9Y_valid_key',
+      );
+    });
+
+    it('should safely concatenate baseUrl with streamKey when trailing slash is omitted', () => {
+      const dest = adapter.buildRtmpDestination(
+        'rtmps://live-upload.instagram.com:443/rtmp',
+        'AQB3x9Y_valid_key',
+      );
+      expect(dest).toBe(
+        'rtmps://live-upload.instagram.com:443/rtmp/AQB3x9Y_valid_key',
+      );
+    });
+
+    it('should not duplicate streamKey if url already ends with the streamKey', () => {
+      const dest = adapter.buildRtmpDestination(
+        'rtmps://live-upload.instagram.com:443/rtmp/AQB3x9Y_valid_key',
+        'AQB3x9Y_valid_key',
+      );
+      expect(dest).toBe(
+        'rtmps://live-upload.instagram.com:443/rtmp/AQB3x9Y_valid_key',
+      );
     });
   });
 
@@ -110,16 +146,68 @@ describe('InstagramAdapter (Unit)', () => {
       expect(res.platformStreamId).toContain('ig_broadcast_');
       expect(res.streamUrl).toBe('rtmps://live-upload.instagram.com:443/rtmp/');
       expect(res.streamKey).toBe('AQB3x9Y_valid_key');
-      expect(res.producerUrl).toBe('https://www.instagram.com/live/producer');
+      expect(res.producerUrl).toBe('https://www.instagram.com/');
     });
   });
 
   describe('URLs', () => {
-    it('should generate correct viewer and producer URLs', () => {
-      expect(adapter.getProducerUrl()).toBe('https://www.instagram.com/live/producer');
-      expect(adapter.getViewerUrlForUsername('nexasocial_official')).toBe(
-        'https://www.instagram.com/nexasocial_official/live/',
+    it('should generate correct viewer and producer URLs', async () => {
+      expect(adapter.getProducerUrl()).toBe('https://www.instagram.com/');
+      expect(adapter.getProfileUrl('nexasocial_official')).toBe(
+        'https://www.instagram.com/nexasocial_official/',
       );
+      expect(adapter.getProfileUrl('@nexasocial_official')).toBe(
+        'https://www.instagram.com/nexasocial_official/',
+      );
+      expect(adapter.getProfileUrl(null)).toBeNull();
+      expect(adapter.getProfileUrl('')).toBeNull();
+      expect(await adapter.getViewerUrl('any-id')).toBeNull();
+    });
+  });
+
+  describe('checkOfficialLiveStatus', () => {
+    it('should require manual confirmation when access token is mock or missing', async () => {
+      const res = await adapter.checkOfficialLiveStatus('mock_token', 'ig_user_1');
+      expect(res.isLive).toBe(false);
+      expect(res.requiresManualConfirmation).toBe(true);
+      expect(res.apiPublishSupported).toBe(false);
+      expect(res.limitationReason).toContain('Live video');
+      expect(res.isMockAccount).toBe(true);
+    });
+
+    it('should detect live broadcast if Meta live_media edge returns active media', async () => {
+      const originalFetch = global.fetch;
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: [{ id: 'live_media_123', media_product_type: 'LIVE' }],
+        }),
+      } as any);
+
+      try {
+        const res = await adapter.checkOfficialLiveStatus('real_token', 'ig_user_1');
+        expect(res.isLive).toBe(true);
+        expect(res.liveMediaId).toBe('live_media_123');
+        expect(res.requiresManualConfirmation).toBe(false);
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    it('should handle API failure or empty live_media gracefully', async () => {
+      const originalFetch = global.fetch;
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: { message: 'Unsupported request' } }),
+      } as any);
+
+      try {
+        const res = await adapter.checkOfficialLiveStatus('real_token', 'ig_user_1');
+        expect(res.isLive).toBe(false);
+        expect(res.requiresManualConfirmation).toBe(true);
+      } finally {
+        global.fetch = originalFetch;
+      }
     });
   });
 });

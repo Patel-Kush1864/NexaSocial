@@ -574,6 +574,7 @@ export class PaymentsService {
       provider,
       workspaceId,
       planId,
+      plan,
       dateFrom,
       dateTo,
       sortBy = 'createdAt',
@@ -594,8 +595,14 @@ export class PaymentsService {
       qb.andWhere('payment.gateway = :provider', { provider });
     }
 
-    if (planId) {
-      qb.andWhere('payment.plan_id = :planId', { planId });
+    if (planId || plan) {
+      qb.andWhere(
+        '(payment.plan_id = :planIdParam OR plan.name LIKE :planNameParam)',
+        {
+          planIdParam: planId || plan,
+          planNameParam: `%${plan || planId}%`,
+        },
+      );
     }
 
     if (dateFrom) {
@@ -608,7 +615,7 @@ export class PaymentsService {
 
     if (search) {
       qb.andWhere(
-        '(payment.id LIKE :search OR payment.gateway_payment_id LIKE :search OR user.name LIKE :search OR user.email LIKE :search OR plan.name LIKE :search)',
+        '(payment.id LIKE :search OR payment.gateway_payment_id LIKE :search OR user.first_name LIKE :search OR user.last_name LIKE :search OR user.email LIKE :search OR plan.name LIKE :search)',
         { search: `%${search}%` },
       );
     }
@@ -667,19 +674,23 @@ export class PaymentsService {
         currency: item.currency,
         status: item.status,
         provider: item.gateway,
+        gateway: item.gateway,
         paymentMethod: 'CARD',
         createdAt: item.created_at,
       };
     });
 
+    const pagination = {
+      page: Number(page),
+      limit: Number(limit),
+      total,
+      totalPages: Math.ceil(total / (Number(limit) || 20)),
+    };
+
     return {
       data,
-      meta: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      meta: pagination,
+      pagination,
     };
   }
 

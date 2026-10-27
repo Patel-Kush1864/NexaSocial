@@ -42,4 +42,14 @@ export class RegisterDto {
   })
   @Trim()
   phoneNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @Trim()
+  invitationToken?: string;
+
+  @IsOptional()
+  @IsString()
+  @Trim()
+  workspaceName?: string;
 }

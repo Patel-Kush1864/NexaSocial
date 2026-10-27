@@ -27,10 +27,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let message = 'Internal server error';
     let error = 'Internal Server Error';
     let details: unknown = null;
+    let exceptionResponse: unknown = null;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
-      const exceptionResponse = exception.getResponse();
+      exceptionResponse = exception.getResponse();
       if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
         const resObj = exceptionResponse as Record<string, unknown>;
 
@@ -105,10 +106,29 @@ export class HttpExceptionFilter implements ExceptionFilter {
       exception instanceof Error ? exception.stack : exception,
     );
 
+    const code =
+      (typeof exceptionResponse === 'object' &&
+        exceptionResponse !== null &&
+        (exceptionResponse as Record<string, unknown>).code) ||
+      (status === HttpStatus.FORBIDDEN
+        ? 'PERMISSION_DENIED'
+        : status === HttpStatus.UNAUTHORIZED
+          ? 'UNAUTHORIZED'
+          : status === HttpStatus.NOT_FOUND
+            ? 'NOT_FOUND'
+            : status === HttpStatus.CONFLICT
+              ? 'CONFLICT'
+              : status === HttpStatus.UNPROCESSABLE_ENTITY
+                ? 'UNPROCESSABLE_ENTITY'
+                : status === HttpStatus.TOO_MANY_REQUESTS
+                  ? 'TOO_MANY_REQUESTS'
+                  : 'ERROR');
+
     // Return standardized response
     response.status(status).json({
       success: false,
       statusCode: status,
+      code,
       error,
       message,
       ...(details ? { details } : {}),

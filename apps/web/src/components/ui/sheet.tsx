@@ -33,7 +33,7 @@ export function Sheet({ open, onOpenChange, children }: SheetProps) {
 }
 
 export function SheetContent({
-  side = 'left',
+  side = 'right',
   className,
   children,
 }: SheetContentProps) {
@@ -52,14 +52,14 @@ export function SheetContent({
       {/* Slide-out Container */}
       <div
         className={cn(
-          'fixed inset-y-0 z-50 h-full bg-background border-r border-border shadow-2xl transition-transform duration-300',
-          side === 'left' ? 'left-0 animate-in slide-in-from-left' : 'right-0 animate-in slide-in-from-right',
+          'fixed inset-y-0 z-50 h-full w-full bg-background shadow-2xl transition-transform duration-300 flex flex-col',
+          side === 'left' ? 'left-0 border-r border-border animate-in slide-in-from-left' : 'right-0 border-l border-border animate-in slide-in-from-right',
           className,
         )}
       >
         <button
           onClick={() => onOpenChange(false)}
-          className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 focus:outline-none"
+          className="absolute right-4 top-4 z-20 rounded-md p-1.5 text-muted-foreground opacity-70 hover:opacity-100 hover:bg-muted/80 focus:outline-none transition-all"
         >
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>

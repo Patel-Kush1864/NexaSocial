@@ -7,6 +7,7 @@ import {
   IsArray,
   IsUUID,
   IsNotEmpty,
+  IsBoolean,
 } from 'class-validator';
 import { StreamVisibility } from '../entities/livestream.entity';
 import { IsThumbnailFormat } from '../validators/is-thumbnail-format.validator';
@@ -155,3 +156,28 @@ export class FacebookPublishDto {
   @IsOptional()
   platformId?: string;
 }
+
+export class InstagramSourceDto {
+  @IsString()
+  @IsOptional()
+  platformId?: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'Instagram Stream Key is required' })
+  streamKey: string;
+
+  @IsString()
+  @IsOptional()
+  streamUrl?: string;
+}
+
+export class InstagramConfirmLiveDto {
+  @IsString()
+  @IsOptional()
+  platformId?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  manualConfirmed?: boolean;
+}
+

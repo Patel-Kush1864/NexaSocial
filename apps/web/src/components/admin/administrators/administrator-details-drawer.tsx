@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { format } from 'date-fns';
+import { formatDateSafe } from '@/lib/utils';
 import { useAdministratorDetails, useUpdateAdministratorRole, useUpdateAdministratorStatus } from '@/hooks/use-administrators';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -93,7 +93,7 @@ export function AdministratorDetailsDrawer({ adminId, open, onOpenChange }: Prop
                   </div>
                   <div>
                     <div className="text-sm font-medium text-muted-foreground">Created At</div>
-                    <div>{format(new Date(admin.createdAt), 'dd MMM yyyy, hh:mm a')}</div>
+                    <div>{formatDateSafe(admin.createdAt || admin.created_at, 'dd MMM yyyy, hh:mm a')}</div>
                   </div>
                 </div>
               </section>

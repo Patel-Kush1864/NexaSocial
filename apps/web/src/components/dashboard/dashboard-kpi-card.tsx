@@ -1,6 +1,7 @@
 'use client';
 
-import { LucideIcon, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import Link from 'next/link';
+import { LucideIcon, TrendingUp, TrendingDown, Minus, ArrowUpRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { DashboardKpiSkeleton } from '@/components/dashboard/skeletons/dashboard-kpi-skeleton';
@@ -12,6 +13,8 @@ export interface DashboardKpiCardProps {
   direction?: 'up' | 'down' | 'neutral';
   sentiment?: 'positive' | 'negative' | 'neutral';
   description?: string;
+  subtitle?: string;
+  href?: string;
   icon: LucideIcon;
   gradient?: string;
   isLoading?: boolean;
@@ -24,6 +27,8 @@ export function DashboardKpiCard({
   direction,
   sentiment = 'positive',
   description,
+  subtitle,
+  href,
   icon: Icon,
   gradient = 'from-blue-500 to-cyan-500',
   isLoading = false,
@@ -47,53 +52,77 @@ export function DashboardKpiCard({
   const changePrefix = direction === 'up' ? '+' : direction === 'down' ? '-' : '';
   const changeValue = change !== undefined ? Math.abs(change) : 0;
 
-  return (
-    <Card className="overflow-hidden border-none shadow-md relative group bg-white dark:bg-zinc-950 transition-all hover:shadow-lg">
+  const cardNode = (
+    <Card
+      className={cn(
+        'overflow-hidden border border-border/50 shadow-sm relative group bg-card transition-all duration-200 hover:shadow-md hover:border-border',
+        href && 'cursor-pointer hover:border-primary/40 hover:-translate-y-0.5'
+      )}
+    >
       <div
         className={cn(
-          'absolute top-0 right-0 w-32 h-32 bg-gradient-to-br opacity-10 rounded-full blur-3xl -mr-10 -mt-10 transition-all group-hover:opacity-20',
+          'absolute top-0 right-0 w-32 h-32 bg-gradient-to-br opacity-10 rounded-full blur-3xl -mr-10 -mt-10 transition-all duration-300 group-hover:opacity-25',
           gradient
         )}
       />
       
-      <CardContent className="p-6 relative z-10">
-        <div className="flex justify-between items-start">
-          <div className="space-y-2 min-w-0 flex-1 pr-2">
-            <p className="text-sm font-medium text-muted-foreground tracking-tight break-words">{title}</p>
+      <CardContent className="p-4 sm:p-5 xl:p-6 relative z-10">
+        <div className="flex justify-between items-start gap-2">
+          <div className="space-y-1.5 min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <p className="text-xs sm:text-sm font-medium text-muted-foreground tracking-tight leading-snug">{title}</p>
+              {href && (
+                <ArrowUpRight className="w-3.5 h-3.5 text-muted-foreground/60 opacity-0 group-hover:opacity-100 group-hover:text-primary transition-all duration-200 shrink-0" />
+              )}
+            </div>
             <div className="flex items-baseline gap-2">
-              <h2 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 truncate" title={value.toString()}>{value}</h2>
+              <h2 className="text-2xl xl:text-3xl font-bold tracking-tight text-foreground" title={value.toString()}>{value}</h2>
             </div>
             {change !== undefined && direction !== undefined ? (
-              <div className="flex items-center gap-1.5 mt-1">
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                 {(!isFinite(changeValue) || isNaN(changeValue)) ? (
-                  <span className="text-xs text-muted-foreground">No comparison data</span>
+                  <span className="text-[11px] sm:text-xs text-muted-foreground">No comparison data</span>
                 ) : direction === 'neutral' ? (
-                  <span className="text-xs text-muted-foreground">No change vs last month</span>
+                  <span className="text-[11px] sm:text-xs text-muted-foreground">No change vs last month</span>
                 ) : (
                   <>
-                    <div className={cn("flex items-center text-sm font-medium", changeColor)}>
-                      <ChangeIcon className="w-3.5 h-3.5 mr-1" />
+                    <div className={cn("flex items-center text-xs sm:text-sm font-semibold", changeColor)}>
+                      <ChangeIcon className="w-3.5 h-3.5 mr-0.5" />
                       {changePrefix}{changeValue}%
                     </div>
-                    <span className="text-xs text-muted-foreground ml-1">vs last month</span>
+                    <span className="text-[11px] sm:text-xs text-muted-foreground">vs last month</span>
                   </>
                 )}
               </div>
             ) : description ? (
               <div className="flex items-center gap-1.5 mt-1">
-                <span className="text-sm text-muted-foreground">{description}</span>
+                <span className="text-xs text-muted-foreground truncate">{description}</span>
               </div>
             ) : null}
+
+            {subtitle && (
+              <p className="text-[11px] text-muted-foreground/75 font-medium pt-0.5 leading-snug">{subtitle}</p>
+            )}
           </div>
           
           <div className={cn(
-            "p-3 rounded-xl bg-gradient-to-br shadow-sm",
+            "p-2.5 rounded-xl bg-gradient-to-br shadow-sm shrink-0 transition-transform duration-200 group-hover:scale-105",
             gradient
           )}>
-            <Icon className="w-6 h-6 text-white" />
+            <Icon className="w-5 h-5 text-white" />
           </div>
         </div>
       </CardContent>
     </Card>
   );
+
+  if (href) {
+    return (
+      <Link href={href} className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-xl">
+        {cardNode}
+      </Link>
+    );
+  }
+
+  return cardNode;
 }

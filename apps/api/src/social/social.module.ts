@@ -6,6 +6,7 @@ import { OAuthToken } from './entities/oauth-token.entity';
 import { Platform } from '../database/entities/platform.entity';
 import { ActivityLog } from '../users/entities/activity-log.entity';
 import { WorkspaceMember } from '../workspace-members/entities/workspace-member.entity';
+import { Workspace } from '../workspaces/entities/workspace.entity';
 import { SocialService } from './services/social.service';
 import { SocialController } from './controllers/social.controller';
 import {
@@ -30,6 +31,8 @@ import { TwitterService } from './platforms/twitter/twitter.service';
 import { TwitchService } from './platforms/twitch/twitch.service';
 import { TiktokService } from './platforms/tiktok/tiktok.service';
 
+import { SocialAnalyticsSnapshot } from '../dashboard/entities/social-analytics-snapshot.entity';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -39,6 +42,8 @@ import { TiktokService } from './platforms/tiktok/tiktok.service';
       Platform,
       ActivityLog,
       WorkspaceMember,
+      Workspace,
+      SocialAnalyticsSnapshot,
     ]),
     SubscriptionsModule,
     LoggerModule,

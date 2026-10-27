@@ -14,10 +14,11 @@ export interface PlatformOAuthResult {
 }
 
 export interface PlatformHandler {
-  getAuthUrl(state: string): string;
+  getAuthUrl(state: string, correlationId?: string): string;
   exchangeCode(
     code: string,
     redirectUriOverride?: string,
+    correlationId?: string,
   ): Promise<PlatformOAuthResult>;
   refreshTokens(refreshToken: string): Promise<PlatformOAuthResult>;
   fetchProfile(accessToken: string): Promise<PlatformProfile>;

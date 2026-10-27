@@ -13,7 +13,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Trash2, Shield } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelativeTime } from '@/lib/utils';
 
 interface MembersTableProps {
   members: WorkspaceMember[];
@@ -78,9 +78,11 @@ export function MembersTable({ members, onRemove, onUpdateRole }: MembersTablePr
                   </TableCell>
                   <TableCell>{getRoleBadge(member.role)}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    {member.joinedAt
-                      ? formatDistanceToNow(new Date(member.joinedAt), { addSuffix: true })
-                      : 'Recently'}
+                    {formatRelativeTime(
+                      member.joinedAt || member.joined_at || member.createdAt || member.created_at,
+                      { addSuffix: true },
+                      'Recently',
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     {member.role !== 'OWNER' && (

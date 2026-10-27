@@ -59,9 +59,18 @@ export function useSocialAccounts(workspaceId?: string) {
     mutationFn: ({ accountId, workspaceId }: { accountId: string; workspaceId: string }) =>
       socialService.disconnect(accountId, workspaceId),
     onSuccess: (_, variables) => {
+      if (variables.workspaceId) {
+        queryClient.setQueryData(
+          queryKeys.social.accounts(variables.workspaceId),
+          (old: any[] | undefined) =>
+            old ? old.filter((acc) => acc.id !== variables.accountId) : [],
+        );
+      }
       queryClient.invalidateQueries({
         queryKey: queryKeys.social.accounts(variables.workspaceId),
       });
+      queryClient.invalidateQueries({ queryKey: ['social'] });
+      queryClient.invalidateQueries({ queryKey: ['social-accounts'] });
       toast.success('Account disconnected');
     },
     onError: () => {

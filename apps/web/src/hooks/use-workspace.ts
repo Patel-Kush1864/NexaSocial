@@ -56,6 +56,12 @@ export function useWorkspace() {
       workspaceService.switchWorkspace(workspaceId),
     onSuccess: (res) => {
       switchWorkspace(res.workspace.id);
+      queryClient.invalidateQueries({ queryKey: ['subscriptions', 'entitlements'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.members(res.workspace.id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.invitations(res.workspace.id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.streams.all(res.workspace.id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.social.accounts(res.workspace.id) });
       toast.success('Workspace switched', {
         description: `Active workspace: ${res.workspace.name}`,
       });
@@ -175,6 +181,9 @@ export function useWorkspaceMembers(workspaceId?: string) {
       queryClient.invalidateQueries({
         queryKey: queryKeys.workspaces.members(variables.workspaceId),
       });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.workspaces.invitations(variables.workspaceId),
+      });
       toast.success('Invitation sent', {
         description: `Sent invite link to ${variables.email} as ${variables.role}`,
       });
@@ -200,15 +209,19 @@ export function useWorkspaceInvitations(workspaceId?: string) {
   const queryClient = useQueryClient();
 
   const invitationsQuery = useQuery({
-    queryKey: [...queryKeys.workspaces.detail(workspaceId || ''), 'invitations'],
+    queryKey: queryKeys.workspaces.invitations(workspaceId || ''),
     queryFn: () => workspaceService.getPendingInvitations(workspaceId!),
     enabled: !!workspaceId,
+    refetchOnMount: 'always',
   });
 
   const resendMutation = useMutation({
     mutationFn: ({ workspaceId, invitationId }: { workspaceId: string; invitationId: string }) =>
       workspaceService.resendInvitation(workspaceId, invitationId),
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.workspaces.invitations(variables.workspaceId),
+      });
       toast.success('Invitation resent successfully');
     },
     onError: () => {
@@ -221,7 +234,7 @@ export function useWorkspaceInvitations(workspaceId?: string) {
       workspaceService.cancelInvitation(workspaceId, invitationId),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
-        queryKey: [...queryKeys.workspaces.detail(variables.workspaceId), 'invitations'],
+        queryKey: queryKeys.workspaces.invitations(variables.workspaceId),
       });
       toast.success('Invitation cancelled');
     },
@@ -233,6 +246,7 @@ export function useWorkspaceInvitations(workspaceId?: string) {
   return {
     invitations: invitationsQuery.data || [],
     isLoading: invitationsQuery.isLoading,
+    refetch: invitationsQuery.refetch,
     resendInvitation: resendMutation.mutateAsync,
     cancelInvitation: cancelMutation.mutateAsync,
     isResending: resendMutation.isPending,

@@ -15,13 +15,40 @@ export interface GoogleUserProfile {
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   constructor() {
+    const isReal = (val?: string) => Boolean(val && !val.startsWith('dummy-'));
+    const clientID =
+      (isReal(process.env.GOOGLE_CLIENT_ID)
+        ? process.env.GOOGLE_CLIENT_ID
+        : undefined) ||
+      (isReal(process.env.YOUTUBE_CLIENT_ID)
+        ? process.env.YOUTUBE_CLIENT_ID
+        : undefined) ||
+      process.env.GOOGLE_CLIENT_ID ||
+      'dummy-google-client-id';
+
+    const clientSecret =
+      (isReal(process.env.GOOGLE_CLIENT_SECRET)
+        ? process.env.GOOGLE_CLIENT_SECRET
+        : undefined) ||
+      (isReal(process.env.YOUTUBE_CLIENT_SECRET)
+        ? process.env.YOUTUBE_CLIENT_SECRET
+        : undefined) ||
+      process.env.GOOGLE_CLIENT_SECRET ||
+      'dummy-google-client-secret';
+
+    const callbackURL =
+      process.env.GOOGLE_CALLBACK_URL ||
+      process.env.YOUTUBE_REDIRECT_URI ||
+      'http://localhost:5000/api/auth/google/callback';
+
+    console.log(
+      `[GoogleStrategy] Initialized with clientID: ${clientID.substring(0, 16)}... | callbackURL: ${callbackURL}`,
+    );
+
     super({
-      clientID: process.env.GOOGLE_CLIENT_ID || 'dummy-google-client-id',
-      clientSecret:
-        process.env.GOOGLE_CLIENT_SECRET || 'dummy-google-client-secret',
-      callbackURL:
-        process.env.GOOGLE_CALLBACK_URL ||
-        'http://localhost:5000/api/auth/google/callback',
+      clientID,
+      clientSecret,
+      callbackURL,
       scope: [
         'openid',
         'email',

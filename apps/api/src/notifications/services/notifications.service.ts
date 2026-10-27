@@ -51,7 +51,10 @@ export class NotificationsService {
       .where('n.userId = :userId', { userId });
 
     if (workspaceId) {
-      query.andWhere('n.workspaceId = :workspaceId', { workspaceId });
+      query.andWhere(
+        '(n.workspaceId = :workspaceId OR n.workspaceId IS NULL)',
+        { workspaceId },
+      );
     }
 
     if (isRead !== undefined) {
@@ -65,9 +68,19 @@ export class NotificationsService {
   }
 
   async getUnreadCount(userId: string, workspaceId?: string): Promise<number> {
-    const where: any = { userId, isRead: false };
-    if (workspaceId) where.workspaceId = workspaceId;
-    return this.repository.count({ where });
+    const query = this.repository
+      .createQueryBuilder('n')
+      .where('n.userId = :userId', { userId })
+      .andWhere('n.isRead = :isRead', { isRead: false });
+
+    if (workspaceId) {
+      query.andWhere(
+        '(n.workspaceId = :workspaceId OR n.workspaceId IS NULL)',
+        { workspaceId },
+      );
+    }
+
+    return query.getCount();
   }
 
   async markAsRead(id: string, userId: string): Promise<Notification> {
@@ -89,11 +102,21 @@ export class NotificationsService {
     userId: string,
     workspaceId?: string,
   ): Promise<{ success: boolean }> {
-    const where: any = { userId, isRead: false };
-    if (workspaceId) where.workspaceId = workspaceId;
+    const query = this.repository
+      .createQueryBuilder()
+      .update(Notification)
+      .set({ isRead: true })
+      .where('userId = :userId', { userId })
+      .andWhere('isRead = :isRead', { isRead: false });
 
-    await this.repository.update(where, { isRead: true });
+    if (workspaceId) {
+      query.andWhere(
+        '(workspaceId = :workspaceId OR workspaceId IS NULL)',
+        { workspaceId },
+      );
+    }
 
+    await query.execute();
     this.eventEmitter.emit('notification.readAll', { userId, workspaceId });
     return { success: true };
   }

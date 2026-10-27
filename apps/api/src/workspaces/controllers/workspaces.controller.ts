@@ -8,6 +8,7 @@ import {
   Param,
   UseGuards,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { WorkspacesService } from '../services/workspaces.service';
 import {
@@ -93,14 +94,29 @@ export class WorkspacesController {
     }
     // Verify membership
     const workspaces = await this.workspacesService.findAllForUser(user.id);
-    const hasMembership = workspaces.some((w) => w.id === workspaceId);
-    if (!hasMembership) {
-      throw new BadRequestException(
-        'You do not belong to the target workspace',
+    const targetWorkspace = workspaces.find((w) => w.id === workspaceId);
+    if (!targetWorkspace) {
+      throw new ForbiddenException(
+        'The requested workspace could not be found or you do not have access to it.',
       );
     }
-    const workspace = await this.workspacesService.findById(workspaceId);
-    return { success: true, workspace };
+    return {
+      success: true,
+      workspace: targetWorkspace,
+      role: targetWorkspace.role,
+      permissions: targetWorkspace.permissions,
+    };
+  }
+
+  @Get(':id/permissions')
+  async getPermissions(
+    @CurrentUser() user: CurrentUserType,
+    @Param('id') id: string,
+  ) {
+    if (!user) {
+      throw new BadRequestException('User context missing');
+    }
+    return this.workspacesService.getWorkspacePermissions(id, user.id);
   }
 
   @Post(':id/transfer')

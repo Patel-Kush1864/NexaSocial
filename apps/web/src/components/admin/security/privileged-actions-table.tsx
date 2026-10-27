@@ -97,8 +97,13 @@ export function PrivilegedActionsTable() {
                   className="cursor-pointer hover:bg-muted/50"
                   onClick={() => setSelectedLogId(log.id)}
                 >
-                  <TableCell className="whitespace-nowrap">
-                    {format(new Date(log.createdAt), 'dd MMM yyyy, hh:mm a')}
+                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                    {(() => {
+                      const rawDate = log.createdAt || log.created_at;
+                      return rawDate && !isNaN(new Date(rawDate).getTime())
+                        ? format(new Date(rawDate), 'dd MMM yyyy, hh:mm a')
+                        : '-';
+                    })()}
                   </TableCell>
                   <TableCell>
                     {log.adminUser ? (

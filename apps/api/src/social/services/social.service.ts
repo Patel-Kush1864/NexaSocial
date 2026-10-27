@@ -10,6 +10,10 @@ import {
   ConnectedAccount,
   AccountStatus,
 } from '../entities/connected-account.entity';
+import {
+  SocialAccount,
+  SocialAccountStatus,
+} from '../entities/social-account.entity';
 import { OAuthToken } from '../entities/oauth-token.entity';
 import { Platform } from '../../database/entities/platform.entity';
 import { ActivityLog } from '../../users/entities/activity-log.entity';
@@ -28,12 +32,20 @@ import { TwitchService } from '../platforms/twitch/twitch.service';
 import { TiktokService } from '../platforms/tiktok/tiktok.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as crypto from 'crypto';
+import { SocialAnalyticsSnapshot } from '../../dashboard/entities/social-analytics-snapshot.entity';
+import {
+  extractAccountFollowers,
+  extractAccountInteractions,
+  normalizePlatformName,
+} from '../../dashboard/helpers/metric-extractor.helper';
 
 @Injectable()
 export class SocialService {
   constructor(
     @InjectRepository(ConnectedAccount)
     private readonly accountRepository: Repository<ConnectedAccount>,
+    @InjectRepository(SocialAccount)
+    private readonly socialAccountRepository: Repository<SocialAccount>,
     @InjectRepository(OAuthToken)
     private readonly tokenRepository: Repository<OAuthToken>,
     @InjectRepository(Platform)
@@ -42,6 +54,8 @@ export class SocialService {
     private readonly activityLogRepository: Repository<ActivityLog>,
     @InjectRepository(WorkspaceMember)
     private readonly memberRepository: Repository<WorkspaceMember>,
+    @InjectRepository(SocialAnalyticsSnapshot)
+    private readonly snapshotRepository: Repository<SocialAnalyticsSnapshot>,
     private readonly usageLimitService: UsageLimitService,
     private readonly loggerService: LoggerServiceWrapper,
     private readonly eventEmitter: EventEmitter2,
@@ -57,6 +71,47 @@ export class SocialService {
     private readonly tiktokService: TiktokService,
   ) {}
 
+  private async recordSnapshot(account: ConnectedAccount): Promise<void> {
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const followers = extractAccountFollowers(
+        account.platformName,
+        account.metadata,
+      );
+      const interactions = extractAccountInteractions(
+        account.platformName,
+        account.metadata,
+      );
+      const normPlatform = normalizePlatformName(account.platformName);
+
+      const existing = await this.snapshotRepository.findOne({
+        where: { connectedAccountId: account.id, snapshotDate: todayStr },
+      });
+
+      if (!existing) {
+        await this.snapshotRepository.save(
+          this.snapshotRepository.create({
+            workspaceId: account.workspaceId,
+            connectedAccountId: account.id,
+            platformName: normPlatform,
+            followers: followers ?? 0,
+            engagement: interactions ?? 0,
+            snapshotDate: todayStr,
+          }),
+        );
+      } else {
+        if (followers !== null) existing.followers = followers;
+        if (interactions !== null) existing.engagement = interactions;
+        await this.snapshotRepository.save(existing);
+      }
+    } catch (err: any) {
+      this.loggerService.warn(
+        `Failed to record analytics snapshot: ${err?.message || err}`,
+        'SocialService',
+      );
+    }
+  }
+
   private getPlatformHandler(platform: string): PlatformHandler {
     const p = platform.toUpperCase();
     if (p === 'YOUTUBE') return this.youtubeService;
@@ -66,8 +121,22 @@ export class SocialService {
     throw new BadRequestException(`Unsupported social platform: ${platform}`);
   }
 
-  async getPlatforms(): Promise<Platform[]> {
-    return this.platformRepository.find({ where: { isActive: true } });
+  async getPlatforms(): Promise<any[]> {
+    const platforms = await this.platformRepository.find({
+      order: { name: 'ASC' },
+    });
+    return platforms.map((p) => {
+      const canonical =
+        p.name.toUpperCase() === 'TWITTER' ? 'X' : p.name.toUpperCase();
+      return {
+        id: canonical,
+        platformId: p.id,
+        name: p.name,
+        isEnabled: Boolean(p.isActive),
+        isActive: Boolean(p.isActive),
+        icon: canonical.toLowerCase(),
+      };
+    });
   }
 
   async connect(
@@ -76,10 +145,13 @@ export class SocialService {
     userId: string,
   ): Promise<{ url: string }> {
     // Check subscription limit first
-    const allowed = await this.usageLimitService.canConnectAccount(userId);
+    const allowed = await this.usageLimitService.canConnectAccount(
+      userId,
+      workspaceId,
+    );
     if (!allowed) {
       throw new BadRequestException(
-        'Workspace social account limit reached. Please upgrade your plan.',
+        'Your workspace has reached the limit for this feature. Please contact the workspace owner to manage the plan.',
       );
     }
 
@@ -105,8 +177,29 @@ export class SocialService {
     }
 
     const handler = this.getPlatformHandler(platform);
+    if (p === 'INSTAGRAM') {
+      const diag = this.instagramService.getPreflightDiagnostics();
+      if (!diag.isValid) {
+        throw new BadRequestException(
+          `Instagram OAuth preflight check failed: ${diag.errors.join('; ')}`,
+        );
+      }
+    }
+    if (
+      p === 'YOUTUBE' &&
+      typeof this.youtubeService.getPreflightDiagnostics === 'function'
+    ) {
+      const diag = this.youtubeService.getPreflightDiagnostics();
+      if (!diag.isValid) {
+        throw new BadRequestException(
+          `YouTube OAuth preflight check failed: ${diag.errors.join('; ')}`,
+        );
+      }
+    }
+
     // Retrieve canonical redirect URI from handler if supported
     const redirectUri = (handler as any).canonicalRedirectUri || undefined;
+    const correlationId = `oauth_${platform.toLowerCase()}_${crypto.randomBytes(6).toString('hex')}`;
     const nonce = crypto.randomBytes(16).toString('hex');
 
     // Encode state parameters securely
@@ -115,12 +208,37 @@ export class SocialService {
       platform: platform.toUpperCase(),
       userId,
       redirectUri,
+      correlationId,
       nonce,
       timestamp: Date.now(),
     };
     const state = Buffer.from(JSON.stringify(stateObj)).toString('base64');
 
-    return { url: handler.getAuthUrl(state) };
+    this.loggerService.log(
+      `[OAuth Initiation ${correlationId}] Platform: ${platform} | Workspace: ${workspaceId} | User: ${userId} | Canonical Redirect URI: ${redirectUri || 'default'}`,
+      'SocialService',
+    );
+
+    return { url: handler.getAuthUrl(state, correlationId) };
+  }
+
+  getPreflightDiagnostics(platform: string) {
+    const p = platform.toUpperCase();
+    if (p === 'INSTAGRAM') {
+      return this.instagramService.getPreflightDiagnostics();
+    }
+    if (p === 'YOUTUBE') {
+      return this.youtubeService.getPreflightDiagnostics();
+    }
+    const handler = this.getPlatformHandler(platform);
+    const redirectUri = (handler as any).canonicalRedirectUri || undefined;
+    return {
+      platform: p,
+      supported: true,
+      canonicalRedirectUri: redirectUri,
+      isValid: true,
+      errors: [],
+    };
   }
 
   /**
@@ -171,8 +289,12 @@ export class SocialService {
       userId,
       platform: statePlatform,
       redirectUri: stateRedirectUri,
+      correlationId: stateCorrelationId,
       timestamp,
     } = decoded;
+
+    const correlationId =
+      stateCorrelationId || `oauth_cb_${crypto.randomBytes(6).toString('hex')}`;
 
     if (!workspaceId || !userId) {
       throw new BadRequestException(
@@ -196,6 +318,11 @@ export class SocialService {
       );
     }
 
+    this.loggerService.log(
+      `[OAuth Callback ${correlationId}] State validation succeeded for platform ${platform} | Workspace: ${workspaceId} | User: ${userId}`,
+      'SocialService',
+    );
+
     // Replay attack and duplicate code prevention:
     // Meta authorization codes are single-use and expire within seconds/minutes.
     const cleanCode = code.replace(/#_.*$/, '').trim();
@@ -216,7 +343,11 @@ export class SocialService {
     this.markCodeConsumed(codeHash);
 
     const handler = this.getPlatformHandler(platform);
-    const oauthResult = await handler.exchangeCode(cleanCode, stateRedirectUri);
+    const oauthResult = await handler.exchangeCode(
+      cleanCode,
+      stateRedirectUri,
+      correlationId,
+    );
     const profile = await handler.fetchProfile(oauthResult.accessToken);
 
     // Check if account already exists in this workspace
@@ -281,6 +412,8 @@ export class SocialService {
       });
       await this.tokenRepository.save(tokenRecord);
     }
+
+    await this.recordSnapshot(account);
 
     this.loggerService.log(
       `Social account connected: ${profile.name} (${platform.toUpperCase()}) in Workspace ${workspaceId}`,
@@ -416,14 +549,69 @@ export class SocialService {
       });
     }
 
-    if (!account) {
+    // Also look for matching record in SocialAccount (Facebook integration)
+    let socialAcc = await this.socialAccountRepository.findOne({
+      where: { id: accountId },
+    });
+
+    if (!socialAcc && account?.platformUserId) {
+      socialAcc = await this.socialAccountRepository.findOne({
+        where: [
+          { pageId: account.platformUserId },
+          { providerUserId: account.platformUserId },
+        ],
+      });
+    }
+
+    if (!account && !socialAcc) {
+      socialAcc = await this.socialAccountRepository.findOne({
+        where: [
+          { pageId: accountId },
+          { providerUserId: accountId },
+        ],
+      });
+    }
+
+    if (!account && !socialAcc) {
       throw new NotFoundException('Connected social account not found');
     }
 
-    // Remove from database (tokens cascade delete automatically because of CASCADE constraints)
-    const accountName = account.name;
-    const platform = account.platformName;
-    await this.accountRepository.remove(account);
+    const accountName =
+      account?.name ||
+      socialAcc?.pageName ||
+      socialAcc?.providerName ||
+      'Social Account';
+    const platform =
+      account?.platformName ||
+      socialAcc?.provider?.toUpperCase() ||
+      'UNKNOWN';
+
+    // 1. Delete from connected_accounts
+    if (account) {
+      await this.accountRepository.remove(account);
+      await this.tokenRepository.delete({ connectedAccountId: account.id });
+    }
+
+    // 2. Delete from social_accounts and any corresponding connected_accounts
+    if (socialAcc) {
+      await this.socialAccountRepository.remove(socialAcc);
+      await this.tokenRepository.delete({ connectedAccountId: socialAcc.id });
+
+      // Clean up any remaining connected_accounts linked to this Facebook page/profile
+      const remainingConnected = await this.accountRepository.find({
+        where: [
+          { id: socialAcc.id },
+          ...(socialAcc.pageId ? [{ platformUserId: socialAcc.pageId }] : []),
+          ...(socialAcc.providerUserId
+            ? [{ platformUserId: socialAcc.providerUserId }]
+            : []),
+        ],
+      });
+      for (const conn of remainingConnected) {
+        await this.accountRepository.remove(conn);
+        await this.tokenRepository.delete({ connectedAccountId: conn.id });
+      }
+    }
 
     this.loggerService.log(
       `Social account disconnected: ${accountName} (${platform}) from Workspace ${workspaceId} by User ${userId}`,
@@ -500,6 +688,8 @@ export class SocialService {
       account.metadata = profile.metadata || account.metadata;
       account.status = AccountStatus.CONNECTED;
       await this.accountRepository.save(account);
+
+      await this.recordSnapshot(account);
 
       await this.activityLogRepository.save(
         this.activityLogRepository.create({

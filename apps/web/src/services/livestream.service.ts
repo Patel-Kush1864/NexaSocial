@@ -174,10 +174,53 @@ export const livestreamService = {
     return data;
   },
 
-  async confirmInstagramLive(
+  async configureInstagramSource(
+    id: string,
+    workspaceId: string,
+    payload: {
+      platformId?: string;
+      streamKey: string;
+      streamUrl?: string;
+    },
+  ): Promise<InstagramWorkflowStatusResponse> {
+    const { data } = await apiClient.post<InstagramWorkflowStatusResponse>(
+      `/livestreams/${id}/instagram/source`,
+      payload,
+      { params: { workspaceId } },
+    );
+    return data;
+  },
+
+  async startInstagramOutput(
     id: string,
     workspaceId: string,
     payload?: { platformId?: string },
+  ): Promise<InstagramWorkflowStatusResponse> {
+    const { data } = await apiClient.post<InstagramWorkflowStatusResponse>(
+      `/livestreams/${id}/instagram/start`,
+      payload || {},
+      { params: { workspaceId }, timeout: 60000 },
+    );
+    return data;
+  },
+
+  async stopInstagramOutput(
+    id: string,
+    workspaceId: string,
+    payload?: { platformId?: string },
+  ): Promise<InstagramWorkflowStatusResponse> {
+    const { data } = await apiClient.post<InstagramWorkflowStatusResponse>(
+      `/livestreams/${id}/instagram/stop`,
+      payload || {},
+      { params: { workspaceId }, timeout: 60000 },
+    );
+    return data;
+  },
+
+  async confirmInstagramLive(
+    id: string,
+    workspaceId: string,
+    payload?: { platformId?: string; manualConfirmed?: boolean },
   ): Promise<InstagramWorkflowStatusResponse> {
     const { data } = await apiClient.post<InstagramWorkflowStatusResponse>(
       `/livestreams/${id}/instagram/confirm-live`,
@@ -199,3 +242,4 @@ export const livestreamService = {
     return data;
   },
 };
+

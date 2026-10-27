@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-return */
 import {
   Controller,
   Post,
@@ -7,8 +6,12 @@ import {
   UseGuards,
   Query,
   Param,
+  Headers,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { SubscriptionsService } from './subscriptions.service';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermission } from '../auth/decorators/permissions.decorator';
@@ -19,6 +22,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { CurrentUser as CurrentUserType } from '../auth/interfaces/current-user.interface';
 import { PlansService } from '../plans/plans.service';
 import { PaymentsService } from '../payments/payments.service';
+import { Workspace } from '../workspaces/entities/workspace.entity';
 
 @Controller('subscriptions')
 @UseGuards(JwtAuthGuard)
@@ -27,12 +31,21 @@ export class SubscriptionsController {
     private readonly subscriptionsService: SubscriptionsService,
     private readonly plansService: PlansService,
     private readonly paymentsService: PaymentsService,
+    @InjectRepository(Workspace)
+    private readonly workspaceRepository: Repository<Workspace>,
   ) {}
 
   @Get()
   @UseGuards(PermissionsGuard)
   @RequirePermission('platform.subscriptions.view')
   async findAll(@Query() query: any) {
+    return this.subscriptionsService.findAll(query);
+  }
+
+  @Get('platform/all')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('platform.subscriptions.view')
+  async findAllPlatform(@Query() query: any) {
     return this.subscriptionsService.findAll(query);
   }
 
@@ -43,12 +56,40 @@ export class SubscriptionsController {
     return this.subscriptionsService.getStatistics();
   }
 
+  @Get('platform/statistics')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('platform.subscriptions.view')
+  async getPlatformStatistics() {
+    return this.subscriptionsService.getStatistics();
+  }
+
+  private async verifyWorkspaceOwner(
+    user: CurrentUserType,
+    workspaceId?: string,
+  ) {
+    if (!workspaceId) return;
+    if (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN') return;
+    const workspace = await this.workspaceRepository.findOne({
+      where: { id: workspaceId },
+    });
+    if (workspace && workspace.ownerId !== user.id) {
+      throw new ForbiddenException(
+        'Only the workspace owner can manage workspace subscriptions',
+      );
+    }
+  }
+
   @Get('entitlements')
-  async getEntitlements(@CurrentUser() user: CurrentUserType) {
+  async getEntitlements(
+    @CurrentUser() user: CurrentUserType,
+    @Query('workspaceId') queryWorkspaceId?: string,
+    @Headers('x-workspace-id') headerWorkspaceId?: string,
+  ) {
     if (!user) {
       throw new BadRequestException('User context missing');
     }
-    return this.subscriptionsService.getEntitlements(user.id);
+    const workspaceId = queryWorkspaceId || headerWorkspaceId;
+    return this.subscriptionsService.getEntitlements(user.id, workspaceId);
   }
 
   @Get(':id')
@@ -59,11 +100,19 @@ export class SubscriptionsController {
       id === 'current' ||
       id === 'history' ||
       id === 'statistics' ||
-      id === 'entitlements'
+      id === 'entitlements' ||
+      id === 'platform'
     ) {
       // Ignore string matching for other endpoints
       return;
     }
+    return this.subscriptionsService.findOneById(id);
+  }
+
+  @Get('platform/:id')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('platform.subscriptions.view')
+  async findOnePlatform(@Param('id') id: string) {
     return this.subscriptionsService.findOneById(id);
   }
 
@@ -74,14 +123,27 @@ export class SubscriptionsController {
     return this.subscriptionsService.adminCancelSubscription(id);
   }
 
+  @Post('platform/:id/cancel')
+  @UseGuards(PermissionsGuard)
+  @RequirePermission('platform.subscriptions.manage')
+  async adminCancelPlatform(@Param('id') id: string) {
+    return this.subscriptionsService.adminCancelSubscription(id);
+  }
+
   @Post('purchase')
   async purchase(
     @CurrentUser() user: CurrentUserType,
     @Body() dto: PurchaseSubscriptionDto,
+    @Query('workspaceId') queryWorkspaceId?: string,
+    @Headers('x-workspace-id') headerWorkspaceId?: string,
   ) {
     if (!user) {
       throw new BadRequestException('User context missing');
     }
+    const workspaceId =
+      (dto as any).workspaceId || queryWorkspaceId || headerWorkspaceId;
+    await this.verifyWorkspaceOwner(user, workspaceId);
+
     const plan = await this.plansService.findOne(dto.planId);
     if (plan.price === 0) {
       // Free plan checkout: Activate immediately without payment flow
@@ -117,10 +179,17 @@ export class SubscriptionsController {
   }
 
   @Post('cancel')
-  async cancel(@CurrentUser() user: CurrentUserType) {
+  async cancel(
+    @CurrentUser() user: CurrentUserType,
+    @Query('workspaceId') queryWorkspaceId?: string,
+    @Headers('x-workspace-id') headerWorkspaceId?: string,
+    @Body('workspaceId') bodyWorkspaceId?: string,
+  ) {
     if (!user) {
       throw new BadRequestException('User context missing');
     }
+    const workspaceId = bodyWorkspaceId || queryWorkspaceId || headerWorkspaceId;
+    await this.verifyWorkspaceOwner(user, workspaceId);
     return this.subscriptionsService.cancelSubscription(user.id);
   }
 
@@ -128,10 +197,15 @@ export class SubscriptionsController {
   async upgrade(
     @CurrentUser() user: CurrentUserType,
     @Body() dto: ChangePlanDto,
+    @Query('workspaceId') queryWorkspaceId?: string,
+    @Headers('x-workspace-id') headerWorkspaceId?: string,
   ) {
     if (!user) {
       throw new BadRequestException('User context missing');
     }
+    const workspaceId =
+      (dto as any).workspaceId || queryWorkspaceId || headerWorkspaceId;
+    await this.verifyWorkspaceOwner(user, workspaceId);
     return this.subscriptionsService.upgradePlan(user.id, dto.planId);
   }
 
@@ -139,18 +213,30 @@ export class SubscriptionsController {
   async downgrade(
     @CurrentUser() user: CurrentUserType,
     @Body() dto: ChangePlanDto,
+    @Query('workspaceId') queryWorkspaceId?: string,
+    @Headers('x-workspace-id') headerWorkspaceId?: string,
   ) {
     if (!user) {
       throw new BadRequestException('User context missing');
     }
+    const workspaceId =
+      (dto as any).workspaceId || queryWorkspaceId || headerWorkspaceId;
+    await this.verifyWorkspaceOwner(user, workspaceId);
     return this.subscriptionsService.downgradePlan(user.id, dto.planId);
   }
 
   @Post('renew')
-  async renew(@CurrentUser() user: CurrentUserType) {
+  async renew(
+    @CurrentUser() user: CurrentUserType,
+    @Query('workspaceId') queryWorkspaceId?: string,
+    @Headers('x-workspace-id') headerWorkspaceId?: string,
+    @Body('workspaceId') bodyWorkspaceId?: string,
+  ) {
     if (!user) {
       throw new BadRequestException('User context missing');
     }
+    const workspaceId = bodyWorkspaceId || queryWorkspaceId || headerWorkspaceId;
+    await this.verifyWorkspaceOwner(user, workspaceId);
     return this.subscriptionsService.renewSubscription(user.id);
   }
 }

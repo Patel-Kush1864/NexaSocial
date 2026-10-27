@@ -17,8 +17,15 @@ import { useAuthStore } from '@/stores/auth-store';
 
 export function WorkspaceSwitcher() {
   const { currentWorkspace, workspaces, switchWorkspace } = useWorkspace();
-  const { scope } = useAuthStore();
+  const { user, scope } = useAuthStore();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+
+  const canCreateWorkspace =
+    scope === 'PLATFORM' ||
+    user?.role === 'SUPER_ADMIN' ||
+    user?.role === 'ADMIN' ||
+    user?.role === 'WORKSPACE_OWNER' ||
+    currentWorkspace?.role === 'OWNER';
 
   if (scope === 'PLATFORM') {
     return (
@@ -52,13 +59,20 @@ export function WorkspaceSwitcher() {
               <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-violet-600 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-md shadow-violet-500/20">
                 {currentWorkspace?.name.charAt(0).toUpperCase() || 'W'}
               </div>
-              <div className="truncate">
+              <div className="truncate flex-1 min-w-0">
                 <p className="text-xs font-bold leading-none truncate">
                   {currentWorkspace?.name || 'Select Workspace'}
                 </p>
-                <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
-                  {currentWorkspace?.slug || 'workspace'}
-                </p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="text-[10px] text-muted-foreground truncate">
+                    {currentWorkspace?.slug || 'workspace'}
+                  </span>
+                  {currentWorkspace?.role && (
+                    <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 shrink-0">
+                      {currentWorkspace.role}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             <ChevronsUpDown className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -80,7 +94,14 @@ export function WorkspaceSwitcher() {
                   <div className="w-7 h-7 rounded-md bg-secondary flex items-center justify-center font-semibold text-xs shrink-0">
                     {ws.name.charAt(0).toUpperCase()}
                   </div>
-                  <span className="text-xs font-medium truncate">{ws.name}</span>
+                  <div className="flex flex-col truncate">
+                    <span className="text-xs font-medium truncate">{ws.name}</span>
+                    {ws.role && (
+                      <span className="text-[9px] text-muted-foreground uppercase font-semibold">
+                        {ws.role}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {currentWorkspace?.id === ws.id && (
                   <Check className="w-4 h-4 text-primary shrink-0" />
@@ -88,18 +109,24 @@ export function WorkspaceSwitcher() {
               </DropdownMenuItem>
             ))}
           </div>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={() => setIsDialogOpen(true)}
-            className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-primary cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create New Workspace</span>
-          </DropdownMenuItem>
+          {canCreateWorkspace && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => setIsDialogOpen(true)}
+                className="flex items-center gap-2 px-2.5 py-2 text-xs font-semibold text-primary cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create New Workspace</span>
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <CreateWorkspaceDialog open={isDialogOpen} onOpenChange={setIsDialogOpen} />
+      {canCreateWorkspace && (
+        <CreateWorkspaceDialog open={isDialogOpen} onOpenChange={setIsDialogOpen} />
+      )}
     </>
   );
 }
